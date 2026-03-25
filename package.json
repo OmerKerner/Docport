@@ -1,0 +1,55 @@
+{
+  "name": "docport",
+  "version": "0.1.0",
+  "description": "Lossless 2-way translator between Markdown workspaces and Word .docx files, preserving track changes, comments, and citations",
+  "type": "module",
+  "main": "./dist/cli.js",
+  "bin": {
+    "docport": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "markdown",
+    "docx",
+    "word",
+    "track-changes",
+    "comments",
+    "academic-writing",
+    "collaboration"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "citation-js": "^0.7.0",
+    "commander": "^12.0.0",
+    "docx": "^8.5.0",
+    "fast-xml-parser": "^4.5.0",
+    "jszip": "^3.10.1",
+    "remark": "^15.0.0",
+    "remark-gfm": "^4.0.0",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
+    "sharp": "^0.33.0",
+    "simple-git": "^3.27.0",
+    "unified": "^11.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/mdast": "^4.0.4",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
