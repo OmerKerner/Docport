@@ -6,6 +6,7 @@ import { Pusher } from './bridge/Pusher.js';
 import { Puller } from './bridge/Puller.js';
 import { Differ } from './bridge/Differ.js';
 import { DocportState } from './bridge/DocportState.js';
+import { Bootstrapper } from './bridge/Bootstrapper.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 
@@ -61,6 +62,30 @@ program
       console.log(chalk.green('✓ Pull complete'));
     } catch (err) {
       console.error(chalk.red('✗ Pull failed:'), (err as Error).message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('bootstrap <docx> [dir]')
+  .description('Initialize Docport files from an existing .docx')
+  .option('--title <title>', 'Paper title override')
+  .option('--author <author>', 'Primary author name')
+  .option('--chapter-mode <mode>', 'Chapter split mode: single|pagebreak', 'single')
+  .option('--manifest <path>', 'Custom manifest output path')
+  .option('--dry-run', 'Preview generated files without writing')
+  .action(async (docx, dir = '.', opts) => {
+    try {
+      console.log(chalk.blue('🧭 Docport Bootstrap'));
+      await new Bootstrapper().run(docx, dir, {
+        title: opts.title,
+        author: opts.author,
+        chapterMode: opts.chapterMode === 'pagebreak' ? 'pagebreak' : 'single',
+        manifestPath: opts.manifest,
+        dryRun: opts.dryRun,
+      });
+    } catch (err) {
+      console.error(chalk.red('✗ Bootstrap failed:'), (err as Error).message);
       process.exit(1);
     }
   });
