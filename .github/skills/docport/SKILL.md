@@ -1,3 +1,13 @@
+---
+name: docport
+version: 0.1.0
+category: Document Translation
+tags: [markdown, word, docx, academic-writing, collaboration, track-changes, comments]
+description: Lossless 2-way Markdown ↔ Word .docx bridge for academic papers
+author: Omer Kerner
+repository: https://github.com/OmerKerner/Docport
+---
+
 # Docport Skill
 
 **Skill Name:** `docport`  
