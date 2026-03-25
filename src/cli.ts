@@ -126,7 +126,7 @@ program
     try {
       const manifestDir = path.dirname(path.resolve(manifest));
       const state = await DocportState.load(manifestDir);
-      const data = state.data;
+      const data = state.getState();
       
       console.log(chalk.blue('📋 Docport Status\n'));
       

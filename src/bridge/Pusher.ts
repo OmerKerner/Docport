@@ -14,6 +14,8 @@ export interface PushOptions {
   force?: boolean;
   /** Show what would be done without actually writing the file */
   dryRun?: boolean;
+  /** Override output path for generated .docx */
+  outputPath?: string;
 }
 
 /**
@@ -149,7 +151,9 @@ export class Pusher {
     const docxBuffer = await docxBuilder.build(document, manifestDir);
 
     // Step 8: Write to output file (unless dry-run)
-    const outputPath = resolve(manifestDir, manifest.outputFile || 'output.docx');
+    const outputPath = options.outputPath
+      ? resolve(options.outputPath)
+      : resolve(manifestDir, manifest.outputFile || 'output.docx');
 
     if (options.dryRun) {
       console.log(`\n✅ Dry run completed. Would write to: ${outputPath}`);

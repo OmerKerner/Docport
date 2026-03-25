@@ -1,16 +1,19 @@
-import * as docx from 'docx';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - docx library ESM/type compatibility issues in NodeNext mode
+import docx from 'docx';
 import sharp from 'sharp';
 import { readFile, access } from 'fs/promises';
 import { resolve } from 'path';
 
-const { ImageRun } = docx;
+const docxRecord = docx as unknown as Record<string, unknown>;
+const ImageRunCtor = docxRecord['ImageRun'] as new (options: Record<string, unknown>) => unknown;
 
 export class ImageEmbedder {
   /**
    * Embeds an image as a w:drawing element.
    * Handles relative paths, rasterizes SVG/PNG/JPG using sharp.
    */
-  static async embed(imagePath: string, baseDir?: string): Promise<ImageRun> {
+  static async embed(imagePath: string, baseDir?: string): Promise<unknown> {
     const fullPath = baseDir ? resolve(baseDir, imagePath) : resolve(imagePath);
     
     // Validate file exists
@@ -46,7 +49,7 @@ export class ImageEmbedder {
       height = Math.round(height * scale);
     }
 
-    return new ImageRun({
+    return new ImageRunCtor({
       data: processedBuffer,
       transformation: {
         width,

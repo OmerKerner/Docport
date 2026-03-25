@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkStringify from 'remark-stringify';
-import { remarkCriticMarkup, remarkCriticMarkupStringify } from '../src/markdown/CriticMarkupPlugin.js';
+import { remarkCriticMarkup, remarkCriticMarkupStringify } from '../../src/markdown/CriticMarkupPlugin.js';
 
 describe('CriticMarkupPlugin', () => {
   describe('Insertion', () => {

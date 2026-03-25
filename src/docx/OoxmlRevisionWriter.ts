@@ -1,7 +1,10 @@
-import * as docx from 'docx';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - docx library ESM/type compatibility issues in NodeNext mode
+import docx from 'docx';
 import type { Revision } from '../types/index.js';
 
-const { TextRun } = docx;
+const docxRecord = docx as unknown as Record<string, unknown>;
+const TextRunCtor = docxRecord['TextRun'] as new (options: Record<string, unknown> | string) => unknown;
 
 /**
  * Helper for creating track change elements (insertions/deletions).
@@ -19,7 +22,7 @@ export class OoxmlRevisionWriter {
       id,
       author: revision.author,
       date: revision.date,
-      children: [new TextRun(revision.text)],
+      children: [new TextRunCtor(revision.text)],
     };
   }
   
@@ -34,7 +37,7 @@ export class OoxmlRevisionWriter {
       id,
       author: revision.author,
       date: revision.date,
-      children: [new TextRun(revision.text)],
+      children: [new TextRunCtor(revision.text)],
     };
   }
   

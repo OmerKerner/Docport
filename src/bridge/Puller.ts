@@ -15,6 +15,10 @@ import { ConflictResolver } from './ConflictResolver.js';
 export interface PullOptions {
   /** Skip clean tree check and allow pulling with uncommitted changes */
   force?: boolean;
+  /** Resume after conflicts were manually resolved */
+  continueAfterConflict?: boolean;
+  /** Skip creating post-pull commit */
+  noCommit?: boolean;
 }
 
 /**
@@ -303,7 +307,7 @@ export class Puller {
     console.log('   State saved.');
 
     // Step 12: Git commit (post-pull)
-    if (!options.force && chaptersWritten > 0) {
+    if (!options.force && !options.noCommit && chaptersWritten > 0) {
       console.log('💾 Creating post-pull commit...');
       try {
         const docxFilename = basename(docxPath);
