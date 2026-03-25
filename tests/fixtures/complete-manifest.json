@@ -1,0 +1,24 @@
+{
+  "title": "Complete Test Paper",
+  "authors": [
+    {
+      "name": "Jane Smith",
+      "affiliation": "Research Institute",
+      "email": "jane@example.com"
+    },
+    {
+      "name": "Bob Johnson"
+    }
+  ],
+  "chapters": [
+    {
+      "file": "01-intro.md",
+      "title": "Introduction"
+    },
+    {
+      "file": "02-methods.md"
+    }
+  ],
+  "bibliography": "references.bib",
+  "citationStyle": "MLA"
+}

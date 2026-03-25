@@ -1,0 +1,17 @@
+{
+  "title": "Test Paper",
+  "authors": [
+    {
+      "name": "John Doe",
+      "affiliation": "Test University",
+      "email": "john@example.com"
+    }
+  ],
+  "chapters": [
+    {
+      "file": "01-intro.md",
+      "title": "Introduction"
+    }
+  ],
+  "citationStyle": "APA"
+}

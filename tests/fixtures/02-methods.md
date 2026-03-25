@@ -1,0 +1,3 @@
+# Methods
+
+Our research methodology.
