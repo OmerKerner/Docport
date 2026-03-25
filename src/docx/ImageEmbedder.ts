@@ -1,6 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore - docx library ESM/type compatibility issues in NodeNext mode
-import docx from 'docx';
+import * as docx from 'docx';
 import sharp from 'sharp';
 import { readFile, access } from 'fs/promises';
 import { resolve } from 'path';

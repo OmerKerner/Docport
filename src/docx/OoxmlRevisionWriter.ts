@@ -1,6 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore - docx library ESM/type compatibility issues in NodeNext mode
-import docx from 'docx';
+import * as docx from 'docx';
 import type { Revision } from '../types/index.js';
 
 const docxRecord = docx as unknown as Record<string, unknown>;
