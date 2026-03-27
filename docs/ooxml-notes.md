@@ -415,6 +415,7 @@ new Paragraph({
 - **Content controls**: Structured fields (e.g., date pickers)
 - **Smart tags**: Semantic annotations
 - **Embedded objects**: Excel tables, PowerPoint slides
+- **Figure REF fields**: v1 uses internal hyperlink fallback (`@fig:label` text + bookmark target) instead of Word `REF` field codes to avoid unstable field behavior in current `docx` library usage
 
 ### Potential Enhancements
 

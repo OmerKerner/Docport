@@ -298,6 +298,37 @@ If two comments in the same chapter have identical anchorQuotes, the resolver wi
 | `{==text==}` | `<w:highlight w:val="yellow">` | None |
 | `<!-- @comment -->` | `<w:commentRangeStart>`, `<w:commentRangeEnd>`, `<w:commentReference>` | `w:id` |
 
+## Figure Labels and Cross-References (v1)
+
+### Figure labels in Markdown
+
+Use an image followed by a suffix label:
+
+```markdown
+![Pipeline](figures/pipeline.png){#fig:pipeline}
+```
+
+Docport parses `{#fig:...}` and stores it on the image node as figure metadata.
+
+### Inline figure references in Markdown
+
+Use:
+
+```markdown
+As shown in @fig:pipeline, the method converges.
+```
+
+Docport parses `@fig:...` as a structured inline reference node, then stringifies it back identically.
+
+### Word mapping in v1
+
+- Labeled figures are wrapped in Word bookmarks named `docport_fig:label`.
+- Inline references are emitted as internal hyperlinks targeting those bookmarks.
+- The visible reference text stays `@fig:label` for stable roundtrip.
+
+This is a robust fallback: Word links are clickable, and Docport can recover references on pull.
+True live `REF` field code generation is intentionally deferred to a future upgrade.
+
 ## Implementation Notes
 
 ### CriticMarkup Parser

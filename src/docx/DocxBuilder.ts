@@ -13,6 +13,8 @@ import type {
 } from 'mdast';
 import type { DocportDocument } from '../types/index.js';
 import { ImageEmbedder } from './ImageEmbedder.js';
+import type { FigureReferenceNode } from '../markdown/CrossReferencePlugin.js';
+import { getFigureLabel } from '../markdown/CrossReferencePlugin.js';
 
 type DocxCtor<T = unknown> = new (options: Record<string, unknown> | string) => T;
 
@@ -21,6 +23,8 @@ const DocumentCtor = docxRecord['Document'] as DocxCtor;
 const ParagraphCtor = docxRecord['Paragraph'] as DocxCtor;
 const TextRunCtor = docxRecord['TextRun'] as DocxCtor;
 const PageBreakCtor = docxRecord['PageBreak'] as new () => unknown;
+const BookmarkCtor = docxRecord['Bookmark'] as DocxCtor;
+const InternalHyperlinkCtor = docxRecord['InternalHyperlink'] as DocxCtor;
 const headingLevel = (docxRecord['HeadingLevel'] as Record<string, unknown>) ?? {};
 const alignmentType = (docxRecord['AlignmentType'] as Record<string, unknown>) ?? {};
 const PackerValue = docxRecord['Packer'] as { toBuffer?: (doc: unknown) => Promise<Buffer> };
@@ -30,9 +34,12 @@ const PackerValue = docxRecord['Packer'] as { toBuffer?: (doc: unknown) => Promi
  */
 export class DocxBuilder {
   private baseDir?: string;
+  private bookmarkIds = new Map<string, string>();
+  private static readonly FIGURE_BOOKMARK_PREFIX = 'docport_';
 
   async build(doc: DocportDocument, baseDir?: string): Promise<Buffer> {
     this.baseDir = baseDir;
+    this.bookmarkIds = new Map<string, string>();
 
     const sections: unknown[] = [];
 
@@ -217,11 +224,41 @@ export class DocxBuilder {
           break;
         case 'image':
           try {
-            const imageRun = await ImageEmbedder.embed((node as Image).url, this.baseDir);
-            runs.push(imageRun);
+            const imageNode = node as Image;
+            const imageRun = await ImageEmbedder.embed(imageNode.url, this.baseDir);
+            const figureLabel = getFigureLabel(imageNode);
+
+            if (figureLabel) {
+              const bookmarkId = this.ensureBookmarkId(figureLabel);
+              runs.push(
+                new BookmarkCtor({
+                  id: bookmarkId,
+                  children: [imageRun],
+                }),
+              );
+            } else {
+              runs.push(imageRun);
+            }
           } catch {
-            runs.push(new TextRunCtor(`[Image: ${(node as Image).url}]`));
+            const imageNode = node as Image;
+            const fallbackRun = new TextRunCtor(`[Image: ${imageNode.url}]`);
+            const figureLabel = getFigureLabel(imageNode);
+
+            if (figureLabel) {
+              const bookmarkId = this.ensureBookmarkId(figureLabel);
+              runs.push(
+                new BookmarkCtor({
+                  id: bookmarkId,
+                  children: [fallbackRun],
+                }),
+              );
+            } else {
+              runs.push(fallbackRun);
+            }
           }
+          break;
+        case 'figureReference':
+          runs.push(this.createFigureReferenceRun(node as FigureReferenceNode));
           break;
         case 'inlineCode':
           runs.push(
@@ -282,5 +319,33 @@ export class DocxBuilder {
         style: 'Hyperlink',
       }),
     ];
+  }
+
+  private createFigureReferenceRun(node: FigureReferenceNode): unknown {
+    const label = node.label;
+    const bookmarkId = this.ensureBookmarkId(label);
+    const displayText = `@${label}`;
+    const textRun = new TextRunCtor(displayText);
+
+    if (InternalHyperlinkCtor) {
+      return new InternalHyperlinkCtor({
+        children: [textRun],
+        anchor: bookmarkId,
+      });
+    }
+
+    return textRun;
+  }
+
+  private ensureBookmarkId(label: string): string {
+    const existing = this.bookmarkIds.get(label);
+    if (existing) {
+      return existing;
+    }
+
+    const sanitized = label.replace(/[^A-Za-z0-9_:-]/g, '_');
+    const bookmarkId = `${DocxBuilder.FIGURE_BOOKMARK_PREFIX}${sanitized}`;
+    this.bookmarkIds.set(label, bookmarkId);
+    return bookmarkId;
   }
 }

@@ -1,9 +1,10 @@
 import JSZip from 'jszip';
 import { XMLParser } from 'fast-xml-parser';
-import type { Root, Heading, Paragraph, Text, Strong, Emphasis } from 'mdast';
+import type { Root, Heading, Paragraph, Text, Strong, Emphasis, PhrasingContent } from 'mdast';
 import type { Manifest, DocportState, ParsedChapter, Comment, Revision } from '../types/index.js';
 import { OoxmlCommentParser, type RawComment } from './OoxmlCommentParser.js';
 import { OoxmlRevisionParser, type RawRevision } from './OoxmlRevisionParser.js';
+import type { FigureReferenceNode } from '../markdown/CrossReferencePlugin.js';
 
 export interface DocxParseResult {
   chapters: ParsedChapter[];
@@ -17,6 +18,9 @@ export interface DocxParseResult {
  * with remark AST, extracting comments and revisions.
  */
 export class DocxParser {
+  private static readonly FIGURE_BOOKMARK_PREFIX = 'docport_';
+  private static readonly INLINE_FIGURE_REF_PATTERN = /@fig:[A-Za-z0-9:_-]+/g;
+
   async parse(
     docxBuffer: Buffer,
     manifest: Manifest,
@@ -136,6 +140,10 @@ export class DocxParser {
       chapters.push([]);
     }
 
+    if (chapters.length > expectedChapters) {
+      return chapters.slice(chapters.length - expectedChapters);
+    }
+
     return chapters.slice(0, expectedChapters);
   }
 
@@ -179,11 +187,13 @@ export class DocxParser {
       }
     }
 
+    const paragraphFigureLabels = this.extractFigureLabelsFromParagraphBookmarks(p);
+
     // Extract text runs
     const runs = p['w:r'];
     const runArray = runs ? (Array.isArray(runs) ? runs : [runs]) : [];
 
-    const children: (Text | Strong | Emphasis)[] = [];
+    const children: PhrasingContent[] = [];
 
     for (const run of runArray) {
       const text = this.extractRunText(run as Record<string, unknown>);
@@ -198,26 +208,25 @@ export class DocxParser {
         isItalic = 'w:i' in (rPr as Record<string, unknown>);
       }
 
-      if (isBold && isItalic) {
-        children.push({
-          type: 'strong',
-          children: [{
-            type: 'emphasis',
-            children: [{ type: 'text', value: text }],
-          }],
-        });
-      } else if (isBold) {
-        children.push({
-          type: 'strong',
-          children: [{ type: 'text', value: text }],
-        });
-      } else if (isItalic) {
-        children.push({
-          type: 'emphasis',
-          children: [{ type: 'text', value: text }],
-        });
-      } else {
-        children.push({ type: 'text', value: text });
+      children.push(...this.wrapTextByStyle(text, isBold, isItalic));
+    }
+
+    const hyperlinks = p['w:hyperlink'];
+    const hyperlinkArray = hyperlinks ? (Array.isArray(hyperlinks) ? hyperlinks : [hyperlinks]) : [];
+
+    for (const hyperlink of hyperlinkArray) {
+      const hyperlinkText = this.extractHyperlinkText(hyperlink as Record<string, unknown>);
+      if (!hyperlinkText) continue;
+
+      children.push(...this.parseInlineFigureReferenceText(hyperlinkText));
+    }
+
+    if (paragraphFigureLabels.length > 0) {
+      const labelsText = paragraphFigureLabels.map((label) => `{#${label}}`).join(' ');
+      if (labelsText.length > 0) {
+        const needsSeparator = children.length > 0;
+        const value = needsSeparator ? ` ${labelsText}` : labelsText;
+        children.push({ type: 'text', value });
       }
     }
 
@@ -229,7 +238,7 @@ export class DocxParser {
       return {
         type: 'heading',
         depth: Math.min(headingLevel, 6) as 1 | 2 | 3 | 4 | 5 | 6,
-        children,
+        children: children as (Text | Strong | Emphasis)[],
       };
     }
 
@@ -251,6 +260,127 @@ export class DocxParser {
       return (text as Record<string, unknown>)['#text'] as string;
     }
     return null;
+  }
+
+  private extractHyperlinkText(hyperlink: Record<string, unknown>): string | null {
+    const runs = hyperlink['w:r'];
+    if (!runs) {
+      return null;
+    }
+
+    const runArray = Array.isArray(runs) ? runs : [runs];
+    let combinedText = '';
+
+    for (const run of runArray) {
+      const runText = this.extractRunText(run as Record<string, unknown>);
+      if (runText) {
+        combinedText += runText;
+      }
+    }
+
+    return combinedText.length > 0 ? combinedText : null;
+  }
+
+  private parseInlineFigureReferenceText(text: string): PhrasingContent[] {
+    const nodes: PhrasingContent[] = [];
+    let cursor = 0;
+    DocxParser.INLINE_FIGURE_REF_PATTERN.lastIndex = 0;
+    let match = DocxParser.INLINE_FIGURE_REF_PATTERN.exec(text);
+
+    while (match) {
+      const matchText = match[0];
+      const matchStart = match.index;
+
+      if (matchStart > cursor) {
+        const prefix = text.slice(cursor, matchStart);
+        if (prefix.length > 0) {
+          nodes.push({ type: 'text', value: prefix });
+        }
+      }
+
+      const label = matchText.slice(1);
+      const referenceNode: FigureReferenceNode = {
+        type: 'figureReference',
+        label,
+      };
+      nodes.push(referenceNode as PhrasingContent);
+
+      cursor = matchStart + matchText.length;
+      match = DocxParser.INLINE_FIGURE_REF_PATTERN.exec(text);
+    }
+
+    if (cursor < text.length) {
+      const tail = text.slice(cursor);
+      if (tail.length > 0) {
+        nodes.push({ type: 'text', value: tail });
+      }
+    }
+
+    return nodes.length > 0 ? nodes : [{ type: 'text', value: text }];
+  }
+
+  private wrapTextByStyle(text: string, isBold: boolean, isItalic: boolean): PhrasingContent[] {
+    const inlineNodes = this.parseInlineFigureReferenceText(text);
+
+    if (!isBold && !isItalic) {
+      return inlineNodes;
+    }
+
+    const hasFigureRef = inlineNodes.some((node) => node.type === 'figureReference');
+    if (hasFigureRef) {
+      return inlineNodes;
+    }
+
+    const plainText = inlineNodes
+      .filter((node): node is Text => node.type === 'text')
+      .map((node) => node.value)
+      .join('');
+
+    if (isBold && isItalic) {
+      return [{
+        type: 'strong',
+        children: [{
+          type: 'emphasis',
+          children: [{ type: 'text', value: plainText }],
+        }],
+      }];
+    }
+
+    if (isBold) {
+      return [{
+        type: 'strong',
+        children: [{ type: 'text', value: plainText }],
+      }];
+    }
+
+    return [{
+      type: 'emphasis',
+      children: [{ type: 'text', value: plainText }],
+    }];
+  }
+
+  private extractFigureLabelsFromParagraphBookmarks(p: Record<string, unknown>): string[] {
+    const labels: string[] = [];
+    const bookmarkStarts = p['w:bookmarkStart'];
+    const bookmarkArray = bookmarkStarts ? (Array.isArray(bookmarkStarts) ? bookmarkStarts : [bookmarkStarts]) : [];
+
+    for (const bookmark of bookmarkArray) {
+      const name = (bookmark as Record<string, unknown>)['@_w:name'];
+      if (typeof name !== 'string') {
+        continue;
+      }
+
+      if (!name.startsWith(DocxParser.FIGURE_BOOKMARK_PREFIX)) {
+        continue;
+      }
+
+      const label = name.slice(DocxParser.FIGURE_BOOKMARK_PREFIX.length);
+      if (label.length > 0) {
+        labels.push(label);
+      }
+    }
+
+    return labels;
   }
 
   /**

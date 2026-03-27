@@ -30,3 +30,10 @@ export {
   getImageBaseDir,
   type FigurePluginOptions,
 } from './FigurePlugin.js';
+
+export {
+  remarkCrossReference,
+  remarkCrossReferenceStringify,
+  getFigureLabel,
+  type FigureReferenceNode,
+} from './CrossReferencePlugin.js';
