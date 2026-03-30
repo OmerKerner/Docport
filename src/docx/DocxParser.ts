@@ -13,6 +13,22 @@ export interface DocxParseResult {
   decidedRevisions: Revision[];
 }
 
+type ParsedFieldKind = 'REF' | 'PAGEREF' | 'SEQ' | 'UNKNOWN';
+
+interface ParsedField {
+  kind: ParsedFieldKind;
+  instruction: string;
+  target?: string;
+  displayText: string;
+  source: 'fldSimple' | 'complex';
+}
+
+interface ComplexFieldState {
+  instructionChunks: string[];
+  displayChunks: string[];
+  inResult: boolean;
+}
+
 /**
  * High-level orchestrator that parses a .docx file back into chapters
  * with remark AST, extracting comments and revisions.
@@ -189,27 +205,13 @@ export class DocxParser {
 
     const paragraphFigureLabels = this.extractFigureLabelsFromParagraphBookmarks(p);
 
-    // Extract text runs
+    const bookmarkLabelLookup = this.buildBookmarkLabelLookup(p);
+
+    // Extract text runs and complex fields
     const runs = p['w:r'];
     const runArray = runs ? (Array.isArray(runs) ? runs : [runs]) : [];
 
-    const children: PhrasingContent[] = [];
-
-    for (const run of runArray) {
-      const text = this.extractRunText(run as Record<string, unknown>);
-      if (!text) continue;
-
-      const rPr = (run as Record<string, unknown>)['w:rPr'];
-      let isBold = false;
-      let isItalic = false;
-
-      if (rPr && typeof rPr === 'object') {
-        isBold = 'w:b' in (rPr as Record<string, unknown>);
-        isItalic = 'w:i' in (rPr as Record<string, unknown>);
-      }
-
-      children.push(...this.wrapTextByStyle(text, isBold, isItalic));
-    }
+    const children: PhrasingContent[] = this.parseRunsWithComplexFields(runArray, bookmarkLabelLookup);
 
     const hyperlinks = p['w:hyperlink'];
     const hyperlinkArray = hyperlinks ? (Array.isArray(hyperlinks) ? hyperlinks : [hyperlinks]) : [];
@@ -219,6 +221,16 @@ export class DocxParser {
       if (!hyperlinkText) continue;
 
       children.push(...this.parseInlineFigureReferenceText(hyperlinkText));
+    }
+
+    const simpleFields = p['w:fldSimple'];
+    const simpleFieldArray = simpleFields ? (Array.isArray(simpleFields) ? simpleFields : [simpleFields]) : [];
+    for (const simpleField of simpleFieldArray) {
+      const parsedField = this.parseSimpleField(simpleField as Record<string, unknown>);
+      if (!parsedField) {
+        continue;
+      }
+      children.push(...this.fieldToInlineNodes(parsedField, bookmarkLabelLookup));
     }
 
     if (paragraphFigureLabels.length > 0) {
@@ -279,6 +291,222 @@ export class DocxParser {
     }
 
     return combinedText.length > 0 ? combinedText : null;
+  }
+
+  private parseRunsWithComplexFields(
+    runArray: unknown[],
+    bookmarkLabelLookup: Map<string, string>,
+  ): PhrasingContent[] {
+    const children: PhrasingContent[] = [];
+    let fieldState: ComplexFieldState | null = null;
+
+    for (const runRaw of runArray) {
+      const run = runRaw as Record<string, unknown>;
+      const fldCharType = this.extractFldCharType(run);
+
+      if (fldCharType === 'begin') {
+        fieldState = {
+          instructionChunks: [],
+          displayChunks: [],
+          inResult: false,
+        };
+        continue;
+      }
+
+      if (fieldState) {
+        if (fldCharType === 'separate') {
+          fieldState.inResult = true;
+          continue;
+        }
+
+        if (fldCharType === 'end') {
+          const parsedField = this.parseFieldInstruction(
+            fieldState.instructionChunks.join(' '),
+            fieldState.displayChunks.join(''),
+            'complex',
+          );
+          if (parsedField) {
+            children.push(...this.fieldToInlineNodes(parsedField, bookmarkLabelLookup));
+          }
+          fieldState = null;
+          continue;
+        }
+
+        const instr = this.extractInstructionText(run);
+        if (instr) {
+          fieldState.instructionChunks.push(instr);
+          continue;
+        }
+
+        if (fieldState.inResult) {
+          const resultText = this.extractRunText(run);
+          if (resultText) {
+            fieldState.displayChunks.push(resultText);
+          }
+        }
+        continue;
+      }
+
+      const text = this.extractRunText(run);
+      if (!text) {
+        continue;
+      }
+
+      const rPr = run['w:rPr'];
+      let isBold = false;
+      let isItalic = false;
+
+      if (rPr && typeof rPr === 'object') {
+        isBold = 'w:b' in (rPr as Record<string, unknown>);
+        isItalic = 'w:i' in (rPr as Record<string, unknown>);
+      }
+
+      children.push(...this.wrapTextByStyle(text, isBold, isItalic));
+    }
+
+    return children;
+  }
+
+  private parseSimpleField(fieldNode: Record<string, unknown>): ParsedField | null {
+    const instructionRaw = fieldNode['@_w:instr'];
+    if (typeof instructionRaw !== 'string') {
+      return null;
+    }
+
+    const runs = fieldNode['w:r'];
+    const runArray = runs ? (Array.isArray(runs) ? runs : [runs]) : [];
+    const displayText = runArray
+      .map((run) => this.extractRunText(run as Record<string, unknown>) ?? '')
+      .join('');
+
+    return this.parseFieldInstruction(instructionRaw, displayText, 'fldSimple');
+  }
+
+  private parseFieldInstruction(
+    instructionRaw: string,
+    displayText: string,
+    source: 'fldSimple' | 'complex',
+  ): ParsedField | null {
+    const instruction = instructionRaw.replace(/\s+/g, ' ').trim();
+    if (!instruction) {
+      return null;
+    }
+
+    const refMatch = instruction.match(/^(REF|PAGEREF)\s+([^\s\\]+)/i);
+    if (refMatch?.[1] && refMatch[2]) {
+      const kind = refMatch[1].toUpperCase() as ParsedFieldKind;
+      return {
+        kind,
+        instruction,
+        target: refMatch[2],
+        displayText,
+        source,
+      };
+    }
+
+    const seqMatch = instruction.match(/^SEQ\s+([^\s\\]+)/i);
+    if (seqMatch?.[1]) {
+      return {
+        kind: 'SEQ',
+        instruction,
+        target: seqMatch[1],
+        displayText,
+        source,
+      };
+    }
+
+    return {
+      kind: 'UNKNOWN',
+      instruction,
+      displayText,
+      source,
+    };
+  }
+
+  private fieldToInlineNodes(field: ParsedField, bookmarkLabelLookup: Map<string, string>): PhrasingContent[] {
+    if (field.kind === 'REF' || field.kind === 'PAGEREF') {
+      const target = field.target ?? '';
+      const label = this.resolveFigureLabelFromFieldTarget(target, bookmarkLabelLookup);
+      if (label) {
+        const referenceNode: FigureReferenceNode = {
+          type: 'figureReference',
+          label,
+        };
+        return [referenceNode as PhrasingContent];
+      }
+    }
+
+    if (field.displayText.length > 0) {
+      return [{ type: 'text', value: field.displayText }];
+    }
+
+    return [];
+  }
+
+  private resolveFigureLabelFromFieldTarget(target: string, bookmarkLabelLookup: Map<string, string>): string | null {
+    const fromBookmark = bookmarkLabelLookup.get(target);
+    if (fromBookmark) {
+      return fromBookmark;
+    }
+
+    if (target.startsWith(DocxParser.FIGURE_BOOKMARK_PREFIX)) {
+      const labelFromPrefix = target.slice(DocxParser.FIGURE_BOOKMARK_PREFIX.length);
+      if (labelFromPrefix.startsWith('fig:')) {
+        return labelFromPrefix;
+      }
+    }
+
+    if (target.startsWith('fig:')) {
+      return target;
+    }
+
+    return null;
+  }
+
+  private buildBookmarkLabelLookup(p: Record<string, unknown>): Map<string, string> {
+    const map = new Map<string, string>();
+    const bookmarkStarts = p['w:bookmarkStart'];
+    const bookmarkArray = bookmarkStarts ? (Array.isArray(bookmarkStarts) ? bookmarkStarts : [bookmarkStarts]) : [];
+
+    for (const bookmark of bookmarkArray) {
+      const name = (bookmark as Record<string, unknown>)['@_w:name'];
+      if (typeof name !== 'string') {
+        continue;
+      }
+
+      if (!name.startsWith(DocxParser.FIGURE_BOOKMARK_PREFIX)) {
+        continue;
+      }
+
+      const label = name.slice(DocxParser.FIGURE_BOOKMARK_PREFIX.length);
+      if (label.startsWith('fig:')) {
+        map.set(name, label);
+      }
+    }
+
+    return map;
+  }
+
+  private extractFldCharType(run: Record<string, unknown>): string | null {
+    const fldChar = run['w:fldChar'];
+    if (!fldChar || typeof fldChar !== 'object') {
+      return null;
+    }
+
+    const type = (fldChar as Record<string, unknown>)['@_w:fldCharType'];
+    return typeof type === 'string' ? type : null;
+  }
+
+  private extractInstructionText(run: Record<string, unknown>): string | null {
+    const instrText = run['w:instrText'];
+    if (typeof instrText === 'string') {
+      return instrText;
+    }
+    if (instrText && typeof instrText === 'object' && '#text' in instrText) {
+      const value = (instrText as Record<string, unknown>)['#text'];
+      return typeof value === 'string' ? value : null;
+    }
+    return null;
   }
 
   private parseInlineFigureReferenceText(text: string): PhrasingContent[] {
