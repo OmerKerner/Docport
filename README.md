@@ -29,6 +29,22 @@ Docport preserves content and annotation metadata aggressively, but some pull-si
 
 If a reference cannot be resolved to a figure label, displayed Word text is preserved verbatim.
 
+## Equations (LaTeX ↔ Word)
+
+Docport now supports equation round-trip with a fidelity-first policy:
+
+- Markdown syntax: inline `$...$` and block `$$...$$`.
+- Push emits native Word math (`m:oMath`) when conversion is supported.
+- Pull parses Word OMML equations back to LaTeX (subset-first).
+- Unsupported/ambiguous equation forms are preserved best-effort and reported as explicit warnings.
+
+Current supported conversion subset includes common forms such as:
+- `\\frac{a}{b}`
+- `x^{n}`, `x_{n}`
+- `\\sqrt{x}`, `\\sqrt[n]{x}`
+- `\\sum_{i=1}^{n} ...`
+- `\\int_{a}^{b} ...`
+
 ## Installation
 
 ```bash

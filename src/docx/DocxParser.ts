@@ -5,12 +5,15 @@ import type { Manifest, DocportState, ParsedChapter, Comment, Revision } from '.
 import { OoxmlCommentParser, type RawComment } from './OoxmlCommentParser.js';
 import { OoxmlRevisionParser, type RawRevision } from './OoxmlRevisionParser.js';
 import type { FigureReferenceNode } from '../markdown/CrossReferencePlugin.js';
+import { OoxmlEquationParser, type ParsedOoxmlEquation } from './OoxmlEquationParser.js';
+import type { EquationInlineNode } from '../markdown/EquationPlugin.js';
 
 export interface DocxParseResult {
   chapters: ParsedChapter[];
   newComments: Comment[];
   newRevisions: Revision[];
   decidedRevisions: Revision[];
+  equationWarnings: string[];
 }
 
 type ParsedFieldKind = 'REF' | 'PAGEREF' | 'SEQ' | 'UNKNOWN';
@@ -37,12 +40,15 @@ interface ComplexFieldState {
 export class DocxParser {
   private static readonly FIGURE_BOOKMARK_PREFIX = 'docport_';
   private static readonly INLINE_FIGURE_REF_PATTERN = /@fig:[A-Za-z0-9:_-]+/g;
+  private readonly equationParser = new OoxmlEquationParser();
+  private equationWarnings: string[] = [];
 
   async parse(
     docxBuffer: Buffer,
     manifest: Manifest,
     state: DocportState
   ): Promise<DocxParseResult> {
+    this.equationWarnings = [];
     // Parse document structure
     const zip = await JSZip.loadAsync(docxBuffer);
     const documentFile = zip.file('word/document.xml');
@@ -122,6 +128,7 @@ export class DocxParser {
         return this.rawRevisionToRevision(r, chapter, state);
       }),
       decidedRevisions,
+      equationWarnings: [...this.equationWarnings],
     };
   }
 
@@ -250,6 +257,14 @@ export class DocxParser {
       }
     }
 
+    const blockEquationLatex = this.extractBlockEquationLatex(p);
+    if (blockEquationLatex) {
+      return {
+        type: 'paragraph',
+        children: [{ type: 'text', value: `$$${blockEquationLatex}$$` }],
+      };
+    }
+
     const paragraphFigureLabels = this.extractFigureLabelsFromParagraphBookmarks(p);
 
     const bookmarkLabelLookup = this.buildBookmarkLabelLookup(p);
@@ -268,6 +283,11 @@ export class DocxParser {
       if (!hyperlinkText) continue;
 
       children.push(...this.parseInlineFigureReferenceText(hyperlinkText));
+    }
+
+    const inlineMathNodes = this.extractInlineMathNodes(p);
+    if (inlineMathNodes.length > 0) {
+      children.push(...inlineMathNodes);
     }
 
     const simpleFields = p['w:fldSimple'];
@@ -614,6 +634,53 @@ export class DocxParser {
     }
 
     return nodes.length > 0 ? nodes : [{ type: 'text', value: text }];
+  }
+
+  private extractInlineMathNodes(paragraph: Record<string, unknown>): PhrasingContent[] {
+    const nodes: PhrasingContent[] = [];
+    const mathNodes = paragraph['m:oMath'];
+    const mathArray = mathNodes ? (Array.isArray(mathNodes) ? mathNodes : [mathNodes]) : [];
+    for (const mathNode of mathArray) {
+      if (!mathNode || typeof mathNode !== 'object') {
+        continue;
+      }
+      const parsed = this.equationParser.parseInline(mathNode as Record<string, unknown>);
+      const phrasing = this.parsedEquationToPhrasing(parsed);
+      if (phrasing) {
+        nodes.push(phrasing);
+      }
+    }
+    return nodes;
+  }
+
+  private extractBlockEquationLatex(paragraph: Record<string, unknown>): string | null {
+    const mathPara = paragraph['m:oMathPara'];
+    if (!mathPara) {
+      return null;
+    }
+    const first = Array.isArray(mathPara) ? mathPara[0] : mathPara;
+    if (!first || typeof first !== 'object') {
+      return null;
+    }
+    const parsed = this.equationParser.parseBlock(first as Record<string, unknown>);
+    if (parsed.warning) {
+      this.equationWarnings.push(parsed.warning);
+    }
+    return parsed.latex.length > 0 ? parsed.latex : null;
+  }
+
+  private parsedEquationToPhrasing(parsed: ParsedOoxmlEquation): PhrasingContent | null {
+    if (parsed.warning) {
+      this.equationWarnings.push(parsed.warning);
+    }
+    if (parsed.latex.length === 0) {
+      return null;
+    }
+    const equationNode: EquationInlineNode = {
+      type: 'equationInline',
+      latex: parsed.latex,
+    };
+    return equationNode as unknown as PhrasingContent;
   }
 
   private wrapTextByStyle(text: string, isBold: boolean, isItalic: boolean): PhrasingContent[] {

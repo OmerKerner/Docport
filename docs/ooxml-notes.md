@@ -417,6 +417,20 @@ new Paragraph({
 - **Embedded objects**: Excel tables, PowerPoint slides
 - **Figure REF fields**: v2 parser now reads `w:fldSimple` and complex `w:fldChar`/`w:instrText` fields and maps resolvable `REF` targets to markdown figure references. Writer-side generation still favors bookmark + hyperlink fallback for compatibility.
 
+## Equation Notes (OMML)
+
+Docport equation support uses Word OMML (`m:oMath`, `m:oMathPara`) with a subset-first conversion strategy.
+
+Writer path:
+- Markdown `$...$`/`$$...$$` is parsed into equation nodes.
+- `DocxBuilder` emits OMML math using `docx` math primitives where supported.
+- If a pattern is unsupported by the writer subset, text fallback is used without silent loss.
+
+Parser path:
+- `DocxParser` reads inline/block OMML math nodes.
+- `OoxmlEquationParser` maps supported OMML forms to LaTeX.
+- For unsupported structures, parser emits best-effort latex/plain text and warning records surfaced by `pull` and `diff`.
+
 ### Field-Code Fallback Behavior
 
 Word files in the wild can include malformed or partially edited field structures (for example: `begin` without `end`, or missing `separate` runs).

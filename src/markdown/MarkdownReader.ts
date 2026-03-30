@@ -21,6 +21,7 @@ import {
 } from './CommentAnchorPlugin.js';
 import { remarkFigure, getImageBaseDir } from './FigurePlugin.js';
 import { remarkCrossReference } from './CrossReferencePlugin.js';
+import { remarkEquation } from './EquationPlugin.js';
 
 /**
  * Reads and parses markdown files into ParsedChapter objects.
@@ -46,7 +47,8 @@ export class MarkdownReader {
       .use(remarkCriticMarkup)
       .use(remarkCommentAnchor)
       .use(remarkFigure, { baseDir: getImageBaseDir(filePath) })
-      .use(remarkCrossReference);
+      .use(remarkCrossReference)
+      .use(remarkEquation);
 
     // Parse to AST
     let ast = processor.parse(content) as Root;

@@ -20,6 +20,7 @@ import {
   createCommentAnchor,
 } from './CommentAnchorPlugin.js';
 import { remarkCrossReferenceStringify } from './CrossReferencePlugin.js';
+import { remarkEquationStringify } from './EquationPlugin.js';
 
 /**
  * Writes ParsedChapter objects back to markdown files with annotations.
@@ -45,7 +46,8 @@ export class MarkdownWriter {
       .use(remarkGfm)
       .use(remarkCriticMarkupStringify)
       .use(remarkCommentAnchorStringify)
-      .use(remarkCrossReferenceStringify);
+      .use(remarkCrossReferenceStringify)
+      .use(remarkEquationStringify);
 
     // Stringify AST to markdown
     const markdown = processor.stringify(chapter.ast);

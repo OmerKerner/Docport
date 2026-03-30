@@ -294,4 +294,45 @@ describe('Docx cross-reference behavior', () => {
     expect(parsed.newComments.length).toBe(1);
     expect(parsed.newComments[0]?.chapter).toBe('02-b.md');
   });
+
+  it('parses inline OMML equation nodes into equationInline', async () => {
+    const parser = new DocxParser();
+
+    const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">
+  <w:body>
+    <w:p>
+      <m:oMath>
+        <m:f>
+          <m:num><m:r><m:t>a</m:t></m:r></m:num>
+          <m:den><m:r><m:t>b</m:t></m:r></m:den>
+        </m:f>
+      </m:oMath>
+    </w:p>
+  </w:body>
+</w:document>`;
+
+    const zip = new JSZip();
+    zip.file('word/document.xml', documentXml);
+    zip.file(
+      '[Content_Types].xml',
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="xml" ContentType="application/xml"/>
+</Types>`,
+    );
+    const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+
+    const manifest = {
+      title: 'OMML Parse Test',
+      authors: [{ name: 'Tester' }],
+      chapters: [{ file: '01-intro.md' }],
+      citationStyle: 'APA' as const,
+    };
+
+    const parsed = await parser.parse(buffer, manifest, emptyDocportState());
+    const astJson = JSON.stringify(parsed.chapters[0]?.ast ?? {});
+    expect(astJson).toContain('"type":"equationInline"');
+    expect(astJson).toContain('\\frac{a}{b}');
+  });
 });

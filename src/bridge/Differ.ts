@@ -136,6 +136,12 @@ export class Differ {
                 `(${parseResult.newRevisions.filter(r => r.kind === 'insertion').length} insertions, ` +
                 `${parseResult.newRevisions.filter(r => r.kind === 'deletion').length} deletions)`);
     console.log(`   Decided revisions: ${parseResult.decidedRevisions.length}`);
+    if (parseResult.equationWarnings.length > 0) {
+      console.log(`   Equation conversion warnings: ${parseResult.equationWarnings.length}`);
+      for (const warning of parseResult.equationWarnings.slice(0, 5)) {
+        console.log(`      - ${warning}`);
+      }
+    }
 
     // Step 8: Current state info
     console.log('\n📚 Current State:');

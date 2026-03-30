@@ -102,6 +102,12 @@ export class Puller {
 
     console.log(`   Found: ${parseResult.newComments.length} new comments, ${parseResult.newRevisions.length} new revisions`);
     console.log(`   Decided: ${parseResult.decidedRevisions.length} revisions`);
+    if (parseResult.equationWarnings.length > 0) {
+      console.log(`   ⚠️  Equation warnings: ${parseResult.equationWarnings.length}`);
+      for (const warning of parseResult.equationWarnings.slice(0, 5)) {
+        console.log(`      - ${warning}`);
+      }
+    }
 
     // Step 6: Load current markdown chapters
     console.log('📝 Loading markdown chapters...');

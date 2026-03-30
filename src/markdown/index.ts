@@ -37,3 +37,10 @@ export {
   getFigureLabel,
   type FigureReferenceNode,
 } from './CrossReferencePlugin.js';
+
+export {
+  remarkEquation,
+  remarkEquationStringify,
+  type EquationInlineNode,
+  type EquationBlockNode,
+} from './EquationPlugin.js';

@@ -15,6 +15,7 @@ import type { DocportDocument } from '../types/index.js';
 import { ImageEmbedder } from './ImageEmbedder.js';
 import type { FigureReferenceNode } from '../markdown/CrossReferencePlugin.js';
 import { getFigureLabel } from '../markdown/CrossReferencePlugin.js';
+import type { EquationInlineNode, EquationBlockNode } from '../markdown/EquationPlugin.js';
 
 type DocxCtor<T = unknown> = new (options: Record<string, unknown> | string) => T;
 
@@ -25,6 +26,14 @@ const TextRunCtor = docxRecord['TextRun'] as DocxCtor;
 const PageBreakCtor = docxRecord['PageBreak'] as new () => unknown;
 const BookmarkCtor = docxRecord['Bookmark'] as DocxCtor;
 const InternalHyperlinkCtor = docxRecord['InternalHyperlink'] as DocxCtor;
+const MathCtor = docxRecord['Math'] as DocxCtor | undefined;
+const MathRunCtor = docxRecord['MathRun'] as (new (text: string) => unknown) | undefined;
+const MathFractionCtor = docxRecord['MathFraction'] as DocxCtor | undefined;
+const MathSuperScriptCtor = docxRecord['MathSuperScript'] as DocxCtor | undefined;
+const MathSubScriptCtor = docxRecord['MathSubScript'] as DocxCtor | undefined;
+const MathRadicalCtor = docxRecord['MathRadical'] as DocxCtor | undefined;
+const MathSumCtor = docxRecord['MathSum'] as DocxCtor | undefined;
+const MathIntegralCtor = docxRecord['MathIntegral'] as DocxCtor | undefined;
 const headingLevel = (docxRecord['HeadingLevel'] as Record<string, unknown>) ?? {};
 const alignmentType = (docxRecord['AlignmentType'] as Record<string, unknown>) ?? {};
 const PackerValue = docxRecord['Packer'] as { toBuffer?: (doc: unknown) => Promise<Buffer> };
@@ -106,6 +115,8 @@ export class DocxBuilder {
         return this.convertHeading(node as Heading);
       case 'paragraph':
         return this.convertParagraph(node as MdParagraph, chapterFile);
+      case 'equationBlock':
+        return this.convertEquationBlock(node as EquationBlockNode);
       case 'list':
         return this.convertList(node as List, chapterFile);
       case 'blockquote':
@@ -197,6 +208,9 @@ export class DocxBuilder {
               font: 'Courier New',
             }),
           );
+          break;
+        case 'equationInline':
+          runs.push(this.createInlineEquationRun(node as EquationInlineNode));
           break;
         default:
           break;
@@ -335,6 +349,107 @@ export class DocxBuilder {
     }
 
     return textRun;
+  }
+
+  private convertEquationBlock(node: EquationBlockNode): unknown {
+    const mathNode = this.createMathNodeFromLatex(node.latex);
+    if (mathNode) {
+      return new ParagraphCtor({
+        children: [mathNode],
+      });
+    }
+    return new ParagraphCtor({ text: `$$${node.latex}$$` });
+  }
+
+  private createInlineEquationRun(node: EquationInlineNode): unknown {
+    const mathNode = this.createMathNodeFromLatex(node.latex);
+    if (mathNode) {
+      return mathNode;
+    }
+    return new TextRunCtor(`$${node.latex}$`);
+  }
+
+  private createMathNodeFromLatex(latex: string): unknown | null {
+    if (!MathCtor || !MathRunCtor) {
+      return null;
+    }
+
+    const parsed = this.parseLatexToDocxMathChildren(latex.trim());
+    return new MathCtor({ children: parsed });
+  }
+
+  private parseLatexToDocxMathChildren(latex: string): unknown[] {
+    if (!MathRunCtor) {
+      return [];
+    }
+
+    const fraction = latex.match(/^\\frac\{([^{}]+)\}\{([^{}]+)\}$/);
+    if (fraction && MathFractionCtor) {
+      return [
+        new MathFractionCtor({
+          numerator: [new MathRunCtor(fraction[1] ?? '')],
+          denominator: [new MathRunCtor(fraction[2] ?? '')],
+        } as Record<string, unknown>),
+      ];
+    }
+
+    const radical = latex.match(/^\\sqrt(?:\[([^{}\]]+)\])?\{([^{}]+)\}$/);
+    if (radical && MathRadicalCtor) {
+      const degree = radical[1];
+      const body = radical[2] ?? '';
+      return [
+        new MathRadicalCtor({
+          degree: degree ? [new MathRunCtor(degree)] : undefined,
+          children: [new MathRunCtor(body)],
+        } as Record<string, unknown>),
+      ];
+    }
+
+    const sum = latex.match(/^\\sum(?:_\{([^{}]+)\})?(?:\^\{([^{}]+)\})?\s*(.+)?$/);
+    if (sum && MathSumCtor) {
+      const base = sum[3]?.trim() || '';
+      return [
+        new MathSumCtor({
+          subScript: sum[1] ? [new MathRunCtor(sum[1])] : undefined,
+          superScript: sum[2] ? [new MathRunCtor(sum[2])] : undefined,
+          children: [new MathRunCtor(base)],
+        } as Record<string, unknown>),
+      ];
+    }
+
+    const integral = latex.match(/^\\int(?:_\{([^{}]+)\})?(?:\^\{([^{}]+)\})?\s*(.+)?$/);
+    if (integral && MathIntegralCtor) {
+      const base = integral[3]?.trim() || '';
+      return [
+        new MathIntegralCtor({
+          subScript: integral[1] ? [new MathRunCtor(integral[1])] : undefined,
+          superScript: integral[2] ? [new MathRunCtor(integral[2])] : undefined,
+          children: [new MathRunCtor(base)],
+        } as Record<string, unknown>),
+      ];
+    }
+
+    const superScript = latex.match(/^([^_^{}]+)\^\{([^{}]+)\}$/);
+    if (superScript && MathSuperScriptCtor) {
+      return [
+        new MathSuperScriptCtor({
+          children: [new MathRunCtor(superScript[1] ?? '')],
+          superScript: [new MathRunCtor(superScript[2] ?? '')],
+        } as Record<string, unknown>),
+      ];
+    }
+
+    const subScript = latex.match(/^([^_^{}]+)_\{([^{}]+)\}$/);
+    if (subScript && MathSubScriptCtor) {
+      return [
+        new MathSubScriptCtor({
+          children: [new MathRunCtor(subScript[1] ?? '')],
+          subScript: [new MathRunCtor(subScript[2] ?? '')],
+        } as Record<string, unknown>),
+      ];
+    }
+
+    return [new MathRunCtor(latex)];
   }
 
   private ensureBookmarkId(label: string): string {
