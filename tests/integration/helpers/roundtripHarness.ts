@@ -16,7 +16,15 @@ export interface FeatureFixture {
   name: string;
   markdown: string;
   needsImage?: boolean;
-  withCommentState?: boolean;
+  commentStates?: Array<{
+    id: string;
+    anchorQuote: string;
+    author: string;
+    date: string;
+    body: string;
+    resolved: boolean;
+    replies?: Array<{ id: string; author: string; date: string; body: string }>;
+  }>;
 }
 
 export interface MarkdownRoundtripResult {
@@ -175,35 +183,29 @@ function createManifest(chapterPath: string): Manifest {
 
 function createStateForFeature(feature: FeatureFixture): DocportState {
   const base = emptyDocportState();
-  if (!feature.withCommentState) {
+  if (!feature.commentStates || feature.commentStates.length === 0) {
     return base;
   }
 
-  const id = extractCommentId(feature.markdown);
-  if (!id) {
-    return base;
+  for (const commentState of feature.commentStates) {
+    base.comments.push({
+      id: commentState.id,
+      chapter: '01-feature.md',
+      anchorQuote: commentState.anchorQuote,
+      author: commentState.author,
+      date: commentState.date,
+      body: commentState.body,
+      replies: (commentState.replies ?? []).map((reply) => ({
+        id: reply.id,
+        author: reply.author,
+        date: reply.date,
+        body: reply.body,
+      })),
+      resolved: commentState.resolved,
+    });
   }
-
-  base.comments.push({
-    id,
-    chapter: '01-feature.md',
-    anchorQuote: 'Annotated sentence',
-    author: 'Reviewer',
-    date: '2026-03-30T00:00:00.000Z',
-    body: 'Review comment body',
-    replies: [],
-    resolved: false,
-  });
 
   return base;
-}
-
-function extractCommentId(markdown: string): string | null {
-  const match = markdown.match(/id:"([0-9a-fA-F-]{36})"/);
-  if (match?.[1]) {
-    return match[1];
-  }
-  return null;
 }
 
 async function extractCanonicalDocxParts(buffer: Buffer): Promise<Record<string, string>> {
@@ -303,6 +305,26 @@ export function expectedForFeature(feature: FeatureFixture): FeatureExpectation 
         containsAll: ['{#fig:workflow}', 'Track change'],
         containsAny: ['@fig:workflow', '\\@fig:workflow', '\\sum_{i=1}^{n} i', '\\int_{i=1}^{n} i'],
       };
+    case 'annotations-edge':
+      return {
+        heading: '# Edgecase Annotation File',
+        containsAll: [
+          '{#fig:first}',
+          '{#fig:second}',
+          'fig:first',
+          'fig:second',
+          '{++added text++}',
+          '{--removed text--}',
+          'Annotated sentence alpha',
+          'Annotated sentence beta',
+        ],
+      };
+    case 'equations-edge':
+      return {
+        heading: '# Equation Stress File',
+        containsAll: ['\\sum_{i=1}^{n} i^2', '\\int', '\\sqrt'],
+        containsAny: ['\\int_{0}^{\\infty} e^{-x} dx', '\\int^{\\infty} e^{-x} dx'],
+      };
     default:
       return {};
   }
@@ -360,6 +382,11 @@ function diffText(left: string, right: string): string[] {
 
 export function createRoundtripFixtures(): FeatureFixture[] {
   const commentId = randomUUID();
+  const edgeCommentA = randomUUID();
+  const edgeCommentB = randomUUID();
+  const edgeReplyA = randomUUID();
+  const edgeReplyB = randomUUID();
+  const mixedCommentId = randomUUID();
   return [
     {
       name: 'basic',
@@ -379,7 +406,16 @@ export function createRoundtripFixtures(): FeatureFixture[] {
       markdown:
         `<!-- @comment id:"${commentId}" author:"Reviewer" date:"2026-03-30T00:00:00.000Z" -->\n` +
         'Annotated sentence for comment coverage.\n',
-      withCommentState: true,
+      commentStates: [
+        {
+          id: commentId,
+          anchorQuote: 'Annotated sentence',
+          author: 'Reviewer',
+          date: '2026-03-30T00:00:00.000Z',
+          body: 'Review comment body',
+          resolved: false,
+        },
+      ],
     },
     {
       name: 'revisions',
@@ -388,14 +424,79 @@ export function createRoundtripFixtures(): FeatureFixture[] {
     {
       name: 'mixed',
       markdown:
-        `<!-- @comment id:"${randomUUID()}" author:"Reviewer" date:"2026-03-30T00:00:00.000Z" -->\n` +
+        `<!-- @comment id:"${mixedCommentId}" author:"Reviewer" date:"2026-03-30T00:00:00.000Z" -->\n` +
         '# Mixed Feature File\n\n' +
         '![Workflow](pixel.png){#fig:workflow}\n\n' +
         'See @fig:workflow and equation $x_{1} = \\sqrt{a}$.\n\n' +
         '$$\\sum_{i=1}^{n} i$$\n\n' +
         'Track change: {++inserted++} and {--deleted--}.\n',
       needsImage: true,
-      withCommentState: true,
+      commentStates: [
+        {
+          id: mixedCommentId,
+          anchorQuote: 'Track change',
+          author: 'Reviewer',
+          date: '2026-03-30T00:00:00.000Z',
+          body: 'Mixed comment body',
+          resolved: false,
+        },
+      ],
+    },
+    {
+      name: 'annotations-edge',
+      markdown:
+        '# Edgecase Annotation File\n\n' +
+        `<!-- @comment id:"${edgeCommentA}" author:"ReviewerA" date:"2026-04-01T08:00:00.000Z" -->\n` +
+        'Annotated sentence alpha with references to @fig:first.\n\n' +
+        `<!-- @comment id:"${edgeCommentB}" author:"ReviewerB" date:"2026-04-01T09:30:00.000Z" -->\n` +
+        'Annotated sentence beta with revisions {++added text++}, {--removed text--}, and {~~old~>new~~}.\n\n' +
+        '![First figure](pixel.png){#fig:first}\n\n' +
+        '![Second figure](pixel.png){#fig:second}\n\n' +
+        'Cross refs: see @fig:first, @fig:second, and again @fig:first for consistency.\n',
+      needsImage: true,
+      commentStates: [
+        {
+          id: edgeCommentA,
+          anchorQuote: 'Annotated sentence alpha',
+          author: 'ReviewerA',
+          date: '2026-04-01T08:00:00.000Z',
+          body: 'Primary comment A',
+          resolved: false,
+          replies: [
+            {
+              id: edgeReplyA,
+              author: 'Author1',
+              date: '2026-04-01T10:00:00.000Z',
+              body: 'Reply to A',
+            },
+          ],
+        },
+        {
+          id: edgeCommentB,
+          anchorQuote: 'Annotated sentence beta',
+          author: 'ReviewerB',
+          date: '2026-04-01T09:30:00.000Z',
+          body: 'Primary comment B',
+          resolved: true,
+          replies: [
+            {
+              id: edgeReplyB,
+              author: 'Author2',
+              date: '2026-04-01T10:30:00.000Z',
+              body: 'Reply to B',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      name: 'equations-edge',
+      markdown:
+        '# Equation Stress File\n\n' +
+        'Inline symbols: $\\Gamma_{ij} = \\frac{\\alpha+\\beta_1}{\\sqrt{x_{k}^2+1}}$ and $\\mu^2 + \\sigma_{n}$.\n\n' +
+        '$$\\sum_{i=1}^{n} i^2$$\n\n' +
+        '$$\\int_{0}^{\\infty} e^{-x} dx$$\n\n' +
+        '$$\\sqrt[3]{x+y}$$\n',
     },
   ];
 }
