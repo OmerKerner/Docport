@@ -26,6 +26,7 @@ interface ParsedField {
 interface ComplexFieldState {
   instructionChunks: string[];
   displayChunks: string[];
+  fallbackTextChunks: string[];
   inResult: boolean;
 }
 
@@ -75,11 +76,20 @@ export class DocxParser {
     const rawRevisions = await OoxmlRevisionParser.parse(docxBuffer);
 
     // Convert to unified representation
+    const revisionChapterByDocxId = new Map<number, string>();
+    for (const rawRevision of rawRevisions) {
+      revisionChapterByDocxId.set(
+        rawRevision.docxId,
+        this.determineChapter(rawRevision, manifest.chapters, chapterParagraphs),
+      );
+    }
+
     const { newComments, decidedRevisions } = this.processAnnotations(
       rawComments,
       rawRevisions,
       state,
-      manifest.chapters
+      manifest.chapters,
+      chapterParagraphs,
     );
 
     // Convert Word paragraphs back to remark AST
@@ -93,8 +103,8 @@ export class DocxParser {
       const ast = this.convertToAst(paragraphsForChapter);
       const chapterComments = newComments.filter(c => c.chapter === chapterConfig.file);
       const chapterRevisions = rawRevisions
-        .filter(r => this.belongsToChapter(r, chapterConfig.file, i, chapterParagraphs))
-        .map(r => this.rawRevisionToRevision(r, chapterConfig.file, state));
+        .filter((r) => revisionChapterByDocxId.get(r.docxId) === chapterConfig.file)
+        .map((r) => this.rawRevisionToRevision(r, chapterConfig.file, state));
 
       chapters.push({
         file: chapterConfig.file,
@@ -107,8 +117,8 @@ export class DocxParser {
     return {
       chapters,
       newComments,
-      newRevisions: rawRevisions.map(r => {
-        const chapter = this.determineChapter(r, manifest.chapters, chapterParagraphs);
+      newRevisions: rawRevisions.map((r) => {
+        const chapter = revisionChapterByDocxId.get(r.docxId) ?? this.fallbackChapter(manifest.chapters);
         return this.rawRevisionToRevision(r, chapter, state);
       }),
       decidedRevisions,
@@ -119,48 +129,85 @@ export class DocxParser {
    * Splits paragraphs by page breaks to reconstruct chapter boundaries.
    */
   private splitByPageBreaks(paragraphs: Record<string, unknown>[], expectedChapters: number): Record<string, unknown>[][] {
+    const targetChapterCount = Math.max(expectedChapters, 1);
     const chapters: Record<string, unknown>[][] = [];
     let currentChapter: Record<string, unknown>[] = [];
 
     for (const p of paragraphs) {
-      // Check for page break
-      const runs = p['w:r'];
-      const runArray = runs ? (Array.isArray(runs) ? runs : [runs]) : [];
-      
-      let hasPageBreak = false;
-      for (const run of runArray) {
-        if ((run as Record<string, unknown>)['w:br']) {
-          const br = (run as Record<string, unknown>)['w:br'];
-          const brType = (br as Record<string, unknown>)?.['@_w:type'];
-          if (brType === 'page') {
-            hasPageBreak = true;
-            break;
-          }
+      if (this.paragraphHasPageBreak(p)) {
+        if (currentChapter.length > 0) {
+          chapters.push(currentChapter);
+          currentChapter = [];
         }
+        if (this.convertParagraph(p) !== null) {
+          currentChapter.push(p);
+        }
+        continue;
       }
-
-      if (hasPageBreak && currentChapter.length > 0) {
-        chapters.push(currentChapter);
-        currentChapter = [];
-      } else {
-        currentChapter.push(p);
-      }
+      currentChapter.push(p);
     }
 
     if (currentChapter.length > 0) {
       chapters.push(currentChapter);
     }
 
-    // Ensure we have the expected number of chapters
-    while (chapters.length < expectedChapters) {
+    if (chapters.length === 0) {
       chapters.push([]);
     }
 
-    if (chapters.length > expectedChapters) {
-      return chapters.slice(chapters.length - expectedChapters);
+    while (chapters.length < targetChapterCount) {
+      chapters.push([]);
     }
 
-    return chapters.slice(0, expectedChapters);
+    if (chapters.length > targetChapterCount) {
+      const merged = chapters.slice(0, targetChapterCount);
+      const lastIndex = targetChapterCount - 1;
+      for (const overflowChapter of chapters.slice(targetChapterCount)) {
+        const existing = merged[lastIndex] ?? [];
+        merged[lastIndex] = [...existing, ...overflowChapter];
+      }
+      return merged;
+    }
+
+    return chapters.slice(0, targetChapterCount);
+  }
+
+  private paragraphHasPageBreak(paragraph: Record<string, unknown>): boolean {
+    const runs = paragraph['w:r'];
+    const runArray = runs ? (Array.isArray(runs) ? runs : [runs]) : [];
+
+    for (const run of runArray) {
+      const br = (run as Record<string, unknown>)['w:br'];
+      if (!br) {
+        continue;
+      }
+      const brArray = Array.isArray(br) ? br : [br];
+      for (const brNode of brArray) {
+        if (!brNode || typeof brNode !== 'object') {
+          continue;
+        }
+        const brType = (brNode as Record<string, unknown>)['@_w:type'];
+        if (brType === 'page') {
+          return true;
+        }
+      }
+    }
+
+    const pPr = paragraph['w:pPr'];
+    if (pPr && typeof pPr === 'object') {
+      const sectPr = (pPr as Record<string, unknown>)['w:sectPr'];
+      if (sectPr && typeof sectPr === 'object') {
+        const sectionType = (sectPr as Record<string, unknown>)['w:type'];
+        if (sectionType && typeof sectionType === 'object') {
+          const val = (sectionType as Record<string, unknown>)['@_w:val'];
+          if (val === 'nextPage') {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -305,9 +352,13 @@ export class DocxParser {
       const fldCharType = this.extractFldCharType(run);
 
       if (fldCharType === 'begin') {
+        if (fieldState) {
+          children.push(...this.danglingFieldFallbackNodes(fieldState));
+        }
         fieldState = {
           instructionChunks: [],
           displayChunks: [],
+          fallbackTextChunks: [],
           inResult: false,
         };
         continue;
@@ -338,10 +389,14 @@ export class DocxParser {
           continue;
         }
 
+        const runText = this.extractRunText(run);
+        if (runText) {
+          fieldState.fallbackTextChunks.push(runText);
+        }
+
         if (fieldState.inResult) {
-          const resultText = this.extractRunText(run);
-          if (resultText) {
-            fieldState.displayChunks.push(resultText);
+          if (runText) {
+            fieldState.displayChunks.push(runText);
           }
         }
         continue;
@@ -364,7 +419,21 @@ export class DocxParser {
       children.push(...this.wrapTextByStyle(text, isBold, isItalic));
     }
 
+    if (fieldState) {
+      children.push(...this.danglingFieldFallbackNodes(fieldState));
+    }
+
     return children;
+  }
+
+  private danglingFieldFallbackNodes(fieldState: ComplexFieldState): PhrasingContent[] {
+    const fallbackText =
+      fieldState.displayChunks.join('') ||
+      fieldState.fallbackTextChunks.join('');
+    if (fallbackText.length === 0) {
+      return [];
+    }
+    return [{ type: 'text', value: fallbackText }];
   }
 
   private parseSimpleField(fieldNode: Record<string, unknown>): ParsedField | null {
@@ -618,7 +687,8 @@ export class DocxParser {
     rawComments: RawComment[],
     rawRevisions: RawRevision[],
     state: DocportState,
-    chapters: Manifest['chapters']
+    chapters: Manifest['chapters'],
+    chapterParagraphs: Record<string, unknown>[][],
   ): { newComments: Comment[]; decidedRevisions: Revision[] } {
     const newComments: Comment[] = [];
     const decidedRevisions: Revision[] = [];
@@ -630,7 +700,7 @@ export class DocxParser {
         // New comment
         newComments.push({
           id: crypto.randomUUID(),
-          chapter: this.guessChapterForComment(raw, chapters),
+          chapter: this.guessChapterForComment(raw, chapters, chapterParagraphs),
           anchorQuote: raw.anchorText,
           author: raw.author,
           date: new Date(raw.date),
@@ -670,33 +740,92 @@ export class DocxParser {
   /**
    * Guesses which chapter a comment belongs to based on anchor text.
    */
-  private guessChapterForComment(_raw: RawComment, chapters: Manifest['chapters']): string {
-    // Simple heuristic: use first chapter
-    return chapters[0]?.file || 'unknown.md';
-  }
-
-  /**
-   * Determines if a revision belongs to a specific chapter.
-   */
-  private belongsToChapter(
-    _revision: RawRevision,
-    _chapterFile: string,
-    _chapterIndex: number,
-    _chapterParagraphs: Record<string, unknown>[][]
-  ): boolean {
-    // Simple heuristic: assume revisions are distributed evenly
-    return true;
+  private guessChapterForComment(
+    raw: RawComment,
+    chapters: Manifest['chapters'],
+    chapterParagraphs: Record<string, unknown>[][],
+  ): string {
+    if (raw.anchorText) {
+      return this.findChapterForSignal(raw.anchorText, chapters, chapterParagraphs);
+    }
+    return this.fallbackChapter(chapters);
   }
 
   /**
    * Determines which chapter a revision belongs to.
    */
   private determineChapter(
-    _revision: RawRevision,
+    revision: RawRevision,
     chapters: Manifest['chapters'],
-    _chapterParagraphs: Record<string, unknown>[][]
+    chapterParagraphs: Record<string, unknown>[][],
   ): string {
-    return chapters[0]?.file || 'unknown.md';
+    const signal = revision.precedingContext || revision.text;
+    return this.findChapterForSignal(signal, chapters, chapterParagraphs);
+  }
+
+  private findChapterForSignal(
+    signal: string,
+    chapters: Manifest['chapters'],
+    chapterParagraphs: Record<string, unknown>[][],
+  ): string {
+    const normalizedSignal = signal.trim();
+    if (normalizedSignal.length === 0) {
+      return this.fallbackChapter(chapters);
+    }
+
+    const chapterCount = Math.min(chapters.length, chapterParagraphs.length);
+    for (let i = 0; i < chapterCount; i++) {
+      const chapter = chapters[i];
+      if (!chapter) {
+        continue;
+      }
+      const chapterText = this.extractChapterText(chapterParagraphs[i] ?? []);
+      if (chapterText.includes(normalizedSignal)) {
+        return chapter.file;
+      }
+    }
+
+    const loweredSignal = normalizedSignal.toLowerCase();
+    for (let i = 0; i < chapterCount; i++) {
+      const chapter = chapters[i];
+      if (!chapter) {
+        continue;
+      }
+      const chapterText = this.extractChapterText(chapterParagraphs[i] ?? []).toLowerCase();
+      if (chapterText.includes(loweredSignal)) {
+        return chapter.file;
+      }
+    }
+
+    return this.fallbackChapter(chapters);
+  }
+
+  private extractChapterText(chapterParagraphs: Record<string, unknown>[]): string {
+    const parts: string[] = [];
+    for (const paragraph of chapterParagraphs) {
+      const runs = paragraph['w:r'];
+      const runArray = runs ? (Array.isArray(runs) ? runs : [runs]) : [];
+      for (const run of runArray) {
+        const text = this.extractRunText(run as Record<string, unknown>);
+        if (text) {
+          parts.push(text);
+        }
+      }
+
+      const hyperlinks = paragraph['w:hyperlink'];
+      const hyperlinkArray = hyperlinks ? (Array.isArray(hyperlinks) ? hyperlinks : [hyperlinks]) : [];
+      for (const hyperlink of hyperlinkArray) {
+        const text = this.extractHyperlinkText(hyperlink as Record<string, unknown>);
+        if (text) {
+          parts.push(text);
+        }
+      }
+    }
+    return parts.join(' ');
+  }
+
+  private fallbackChapter(chapters: Manifest['chapters']): string {
+    return chapters[0]?.file ?? 'unknown.md';
   }
 
   /**

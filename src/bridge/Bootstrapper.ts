@@ -26,7 +26,7 @@ export class Bootstrapper {
   async run(docxPath: string, outDir = '.', options: BootstrapOptions = {}): Promise<void> {
     const absDocxPath = resolve(docxPath);
     const absOutDir = resolve(outDir);
-    const manifestPath = resolve(options.manifestPath ?? `${absOutDir}\\paper.manifest.json`);
+    const manifestPath = resolve(options.manifestPath ?? resolve(absOutDir, 'paper.manifest.json'));
     const chapterMode = options.chapterMode ?? 'single';
 
     console.log('🧭 Bootstrapping Docport from existing .docx...');

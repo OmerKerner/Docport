@@ -415,7 +415,16 @@ new Paragraph({
 - **Content controls**: Structured fields (e.g., date pickers)
 - **Smart tags**: Semantic annotations
 - **Embedded objects**: Excel tables, PowerPoint slides
-- **Figure REF fields**: v1 uses internal hyperlink fallback (`@fig:label` text + bookmark target) instead of Word `REF` field codes to avoid unstable field behavior in current `docx` library usage
+- **Figure REF fields**: v2 parser now reads `w:fldSimple` and complex `w:fldChar`/`w:instrText` fields and maps resolvable `REF` targets to markdown figure references. Writer-side generation still favors bookmark + hyperlink fallback for compatibility.
+
+### Field-Code Fallback Behavior
+
+Word files in the wild can include malformed or partially edited field structures (for example: `begin` without `end`, or missing `separate` runs).
+
+Docport behavior:
+- Prefer semantic mapping when field instructions are parseable and targets resolve.
+- If not resolvable, preserve displayed field text as plain markdown text.
+- Never silently drop displayed content from malformed field sequences.
 
 ### Potential Enhancements
 

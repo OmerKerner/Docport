@@ -19,6 +19,16 @@ A researcher works in Markdown + Git + AI agents. Their PI works in Word with tr
 - ✅ **Citation management**: BibTeX → formatted references (APA, MLA, Chicago, Vancouver)
 - ✅ **Stable IDs**: Every annotation has a UUID that survives round-trips
 
+## Current Fidelity Notes
+
+Docport preserves content and annotation metadata aggressively, but some pull-side mappings are best-effort:
+
+- Comment/revision chapter assignment is signal-based (anchor quote / surrounding text), not native paragraph IDs.
+- If Word contains malformed or incomplete field-code runs, Docport now preserves displayed text as fallback instead of dropping content.
+- Figure cross-reference recovery is strongest for `REF` targets that resolve to `docport_` figure bookmarks.
+
+If a reference cannot be resolved to a figure label, displayed Word text is preserved verbatim.
+
 ## Installation
 
 ```bash
