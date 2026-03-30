@@ -16,6 +16,14 @@ import { ImageEmbedder } from './ImageEmbedder.js';
 import type { FigureReferenceNode } from '../markdown/CrossReferencePlugin.js';
 import { getFigureLabel } from '../markdown/CrossReferencePlugin.js';
 import type { EquationInlineNode, EquationBlockNode } from '../markdown/EquationPlugin.js';
+import type { CommentAnchorNode } from '../markdown/CommentAnchorPlugin.js';
+import type {
+  CriticInsertionNode,
+  CriticDeletionNode,
+  CriticSubstitutionNode,
+  CriticHighlightNode,
+  CriticCommentNode,
+} from '../markdown/CriticMarkupPlugin.js';
 
 type DocxCtor<T = unknown> = new (options: Record<string, unknown> | string) => T;
 
@@ -212,6 +220,24 @@ export class DocxBuilder {
         case 'equationInline':
           runs.push(this.createInlineEquationRun(node as EquationInlineNode));
           break;
+        case 'commentAnchor':
+          runs.push(new TextRunCtor(this.commentAnchorToMarkup(node as CommentAnchorNode)));
+          break;
+        case 'criticInsertion':
+          runs.push(new TextRunCtor(this.criticNodeToMarkup(node as CriticInsertionNode)));
+          break;
+        case 'criticDeletion':
+          runs.push(new TextRunCtor(this.criticNodeToMarkup(node as CriticDeletionNode)));
+          break;
+        case 'criticSubstitution':
+          runs.push(new TextRunCtor(this.criticNodeToMarkup(node as CriticSubstitutionNode)));
+          break;
+        case 'criticHighlight':
+          runs.push(new TextRunCtor(this.criticNodeToMarkup(node as CriticHighlightNode)));
+          break;
+        case 'criticComment':
+          runs.push(new TextRunCtor(this.criticNodeToMarkup(node as CriticCommentNode)));
+          break;
         default:
           break;
       }
@@ -281,6 +307,24 @@ export class DocxBuilder {
               font: 'Courier New',
             }),
           );
+          break;
+        case 'commentAnchor':
+          runs.push(new TextRunCtor(this.commentAnchorToMarkup(node as CommentAnchorNode)));
+          break;
+        case 'criticInsertion':
+          runs.push(new TextRunCtor(this.criticNodeToMarkup(node as CriticInsertionNode)));
+          break;
+        case 'criticDeletion':
+          runs.push(new TextRunCtor(this.criticNodeToMarkup(node as CriticDeletionNode)));
+          break;
+        case 'criticSubstitution':
+          runs.push(new TextRunCtor(this.criticNodeToMarkup(node as CriticSubstitutionNode)));
+          break;
+        case 'criticHighlight':
+          runs.push(new TextRunCtor(this.criticNodeToMarkup(node as CriticHighlightNode)));
+          break;
+        case 'criticComment':
+          runs.push(new TextRunCtor(this.criticNodeToMarkup(node as CriticCommentNode)));
           break;
         default:
           break;
@@ -462,5 +506,33 @@ export class DocxBuilder {
     const bookmarkId = `${DocxBuilder.FIGURE_BOOKMARK_PREFIX}${sanitized}`;
     this.bookmarkIds.set(label, bookmarkId);
     return bookmarkId;
+  }
+
+  private commentAnchorToMarkup(node: CommentAnchorNode): string {
+    return `<!-- @comment id:"${node.id}" author:"${node.author}" date:"${node.date}" -->`;
+  }
+
+  private criticNodeToMarkup(
+    node:
+      | CriticInsertionNode
+      | CriticDeletionNode
+      | CriticSubstitutionNode
+      | CriticHighlightNode
+      | CriticCommentNode,
+  ): string {
+    switch (node.type) {
+      case 'criticInsertion':
+        return `{++${node.value}++}`;
+      case 'criticDeletion':
+        return `{--${node.value}--}`;
+      case 'criticSubstitution':
+        return `{~~${node.oldValue}~>${node.newValue}~~}`;
+      case 'criticHighlight':
+        return `{==${node.value}==}`;
+      case 'criticComment':
+        return `{>>${node.value}<<}`;
+      default:
+        return '';
+    }
   }
 }

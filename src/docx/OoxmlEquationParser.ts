@@ -35,6 +35,21 @@ function ensureArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [value];
 }
 
+function extractNaryOperator(naryPr: unknown): string {
+  if (!naryPr || typeof naryPr !== 'object') {
+    return '';
+  }
+  const record = naryPr as Record<string, unknown>;
+  const chr = record['m:chr'];
+  if (chr && typeof chr === 'object') {
+    const val = (chr as Record<string, unknown>)['@_m:val'];
+    if (typeof val === 'string') {
+      return val;
+    }
+  }
+  return collectRunText(naryPr);
+}
+
 export class OoxmlEquationParser {
   parseInline(oMath: Record<string, unknown>): ParsedOoxmlEquation {
     return this.parseFromContainer(oMath, 'inline');
@@ -119,7 +134,7 @@ export class OoxmlEquationParser {
         continue;
       }
       const naryRecord = naryNode as Record<string, unknown>;
-      const op = collectRunText(naryRecord['m:naryPr']);
+      const op = extractNaryOperator(naryRecord['m:naryPr']);
       const base = collectRunText(naryRecord['m:e']);
       const sub = collectRunText(naryRecord['m:sub']);
       const sup = collectRunText(naryRecord['m:sup']);

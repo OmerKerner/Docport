@@ -173,6 +173,23 @@ Options:
 ### `docport status [manifest]`
 Show current state: comments, revisions, last push/pull
 
+## Round-trip Test Matrix
+
+The integration suite includes explicit round-trip diff tests for:
+
+- Per-feature `Markdown -> DOCX -> Markdown`
+- Per-feature `DOCX -> Markdown -> DOCX`
+- Mixed all-features `Markdown -> DOCX -> Markdown`
+- Mixed all-features `DOCX -> Markdown -> DOCX`
+
+Run with:
+
+```bash
+npx vitest run tests/integration/roundtrip-*.test.ts
+```
+
+DOCX comparisons use canonical OOXML part diffs (stable XML normalization) to avoid volatile metadata noise.
+
 ## CriticMarkup Syntax
 
 Docport uses [CriticMarkup](http://criticmarkup.com/) for track changes:

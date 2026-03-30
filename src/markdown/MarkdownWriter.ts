@@ -49,8 +49,9 @@ export class MarkdownWriter {
       .use(remarkCrossReferenceStringify)
       .use(remarkEquationStringify);
 
-    // Stringify AST to markdown
-    const markdown = processor.stringify(chapter.ast);
+    // Run transform plugins before stringifying (required for custom nodes).
+    const transformed = (await processor.run(chapter.ast)) as Root;
+    const markdown = processor.stringify(transformed);
 
     // Write to file
     await writeFile(outputPath, markdown, 'utf-8');
