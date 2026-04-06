@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ManifestReader } from '../../src/manifest/ManifestReader.js';
 import { ManifestValidator } from '../../src/manifest/ManifestValidator.js';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,9 +24,9 @@ describe('Manifest Integration', () => {
     expect(manifest.citationStyle).toBe('MLA');
     
     // Verify paths are absolute
-    expect(manifest.chapters[0]?.file).toMatch(/^[A-Z]:\\/);
-    expect(manifest.chapters[1]?.file).toMatch(/^[A-Z]:\\/);
-    expect(manifest.bibliography).toMatch(/^[A-Z]:\\/);
+    expect(isAbsolute(manifest.chapters[0]?.file ?? '')).toBe(true);
+    expect(isAbsolute(manifest.chapters[1]?.file ?? '')).toBe(true);
+    expect(isAbsolute(manifest.bibliography ?? '')).toBe(true);
     
     // Validate all files exist
     const result = await validator.validate(manifest);
@@ -48,9 +48,9 @@ describe('Manifest Integration', () => {
       ],
       chapters: [
         { file: resolve(fixturesDir, '01-intro.md') },
-        { file: '/nonexistent/chapter.md' }, // Missing file
+        { file: resolve(fixturesDir, '__missing__/chapter.md') }, // Missing file
       ],
-      bibliography: '/nonexistent/refs.bib', // Missing file
+      bibliography: resolve(fixturesDir, '__missing__/refs.bib'), // Missing file
       citationStyle: 'APA' as const,
     };
     

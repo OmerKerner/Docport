@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ManifestReader } from '../../src/manifest/ManifestReader.js';
 import { ManifestValidator } from '../../src/manifest/ManifestValidator.js';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -23,7 +23,7 @@ describe('ManifestReader', () => {
     
     // Verify paths are resolved to absolute
     expect(manifest.chapters[0]?.file).toContain('01-intro.md');
-    expect(manifest.chapters[0]?.file).toMatch(/^[A-Z]:\\/); // Windows absolute path
+    expect(isAbsolute(manifest.chapters[0]?.file ?? '')).toBe(true);
   });
 
   it('should throw error for non-existent file', async () => {
@@ -59,7 +59,7 @@ describe('ManifestValidator', () => {
     const manifest = {
       title: 'Test',
       authors: [{ name: 'Author' }],
-      chapters: [{ file: '/nonexistent/file.md' }],
+      chapters: [{ file: resolve(fixturesDir, '__missing__/file.md') }],
       citationStyle: 'APA' as const,
     };
     
