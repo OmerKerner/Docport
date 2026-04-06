@@ -300,6 +300,9 @@ export class DocxBuilder {
         case 'figureReference':
           runs.push(this.createFigureReferenceRun(node as FigureReferenceNode));
           break;
+        case 'equationInline':
+          runs.push(this.createInlineEquationRun(node as EquationInlineNode));
+          break;
         case 'inlineCode':
           runs.push(
             new TextRunCtor({

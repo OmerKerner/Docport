@@ -67,6 +67,7 @@ export class Bootstrapper {
     }
 
     const writer = new MarkdownWriter();
+    this.applyImportedAnnotationsToChapters(chapterPlans);
     for (const chapter of chapterPlans) {
       const outputPath = resolve(absOutDir, chapter.file);
       await writer.writeChapter(chapter.parsed, outputPath);
@@ -89,6 +90,26 @@ export class Bootstrapper {
     console.log(`   Chapters: ${chapterPlans.length}`);
     console.log(`   Imported comments: ${initialState.comments.length}`);
     console.log(`   Imported revisions: ${initialState.revisions.length}`);
+  }
+
+  private applyImportedAnnotationsToChapters(
+    chapterPlans: Array<{ file: string; title: string; parsed: ParsedChapter }>,
+  ): void {
+    const writer = new MarkdownWriter();
+
+    for (const chapter of chapterPlans) {
+      let ast = chapter.parsed.ast;
+
+      for (const comment of chapter.parsed.comments) {
+        ast = writer.insertCommentAnchor(ast, comment);
+      }
+
+      for (const revision of chapter.parsed.revisions) {
+        ast = writer.insertRevision(ast, revision);
+      }
+
+      chapter.parsed.ast = ast;
+    }
   }
 
   private chapterDefs(mode: BootstrapChapterMode): Manifest['chapters'] {
