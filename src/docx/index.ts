@@ -12,6 +12,8 @@ export { OoxmlRevisionParser } from './OoxmlRevisionParser.js';
 export { OoxmlRevisionWriter } from './OoxmlRevisionWriter.js';
 export { OoxmlEquationParser } from './OoxmlEquationParser.js';
 export { ImageEmbedder } from './ImageEmbedder.js';
+export { StyleExtractor } from './StyleExtractor.js';
+export { applyReferenceDocStyles } from './ReferenceDocStyler.js';
 
 export type { RawComment, RawCommentReply } from './OoxmlCommentParser.js';
 export type { RawRevision } from './OoxmlRevisionParser.js';

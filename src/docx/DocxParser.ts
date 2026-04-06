@@ -61,6 +61,7 @@ export class DocxParser {
       ignoreAttributes: false,
       attributeNamePrefix: '@_',
       parseAttributeValue: true,
+      trimValues: false,
     });
 
     const documentDoc = parser.parse(documentXml);
@@ -139,8 +140,15 @@ export class DocxParser {
     const targetChapterCount = Math.max(expectedChapters, 1);
     const chapters: Record<string, unknown>[][] = [];
     let currentChapter: Record<string, unknown>[] = [];
+    let hasSeenContent = false;
 
     for (const p of paragraphs) {
+      const isHeadingBoundary = this.isHeadingLevelOne(p) && hasSeenContent;
+      if (isHeadingBoundary && currentChapter.length > 0) {
+        chapters.push(currentChapter);
+        currentChapter = [];
+      }
+
       if (this.paragraphHasPageBreak(p)) {
         if (currentChapter.length > 0) {
           chapters.push(currentChapter);
@@ -148,10 +156,12 @@ export class DocxParser {
         }
         if (this.convertParagraph(p) !== null) {
           currentChapter.push(p);
+          hasSeenContent = true;
         }
         continue;
       }
       currentChapter.push(p);
+      hasSeenContent = true;
     }
 
     if (currentChapter.length > 0) {
@@ -177,6 +187,22 @@ export class DocxParser {
     }
 
     return chapters.slice(0, targetChapterCount);
+  }
+
+  private isHeadingLevelOne(paragraph: Record<string, unknown>): boolean {
+    const pPr = paragraph['w:pPr'];
+    if (!pPr || typeof pPr !== 'object') {
+      return false;
+    }
+    const pStyle = (pPr as Record<string, unknown>)['w:pStyle'];
+    if (!pStyle || typeof pStyle !== 'object') {
+      return false;
+    }
+    const val = (pStyle as Record<string, unknown>)['@_w:val'];
+    if (typeof val !== 'string') {
+      return false;
+    }
+    return /^Heading\s*1$/i.test(val);
   }
 
   private paragraphHasPageBreak(paragraph: Record<string, unknown>): boolean {

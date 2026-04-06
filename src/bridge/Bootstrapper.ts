@@ -5,6 +5,7 @@ import type { Root } from 'mdast';
 import type { Manifest, DocportState as DocportStateType, ParsedChapter } from '../types/index.js';
 import { emptyDocportState } from '../types/index.js';
 import { DocxParser } from '../docx/DocxParser.js';
+import { StyleExtractor } from '../docx/StyleExtractor.js';
 import { MarkdownWriter } from '../markdown/MarkdownWriter.js';
 import { DocportState } from './DocportState.js';
 
@@ -35,6 +36,7 @@ export class Bootstrapper {
 
     const docxBuffer = await readFile(absDocxPath);
     const parser = new DocxParser();
+    const styleExtractor = new StyleExtractor();
 
     const bootstrapManifest: Manifest = {
       title: options.title ?? basename(absDocxPath, '.docx'),
@@ -42,6 +44,7 @@ export class Bootstrapper {
       chapters: this.chapterDefs(chapterMode),
       citationStyle: 'APA',
       outputFile: `${basename(absDocxPath, '.docx')}_docport.docx`,
+      referenceDoc: '.docport.reference.docx',
     };
 
     const parsed = await parser.parse(docxBuffer, bootstrapManifest, emptyDocportState());
@@ -52,6 +55,7 @@ export class Bootstrapper {
     };
 
     const initialState = this.buildState(parsed, finalManifest, docxBuffer);
+    const styleMetadata = await styleExtractor.extract(docxBuffer, basename(absDocxPath));
 
     if (options.dryRun) {
       console.log('\n🧪 Dry run result:');
@@ -63,6 +67,9 @@ export class Bootstrapper {
       console.log(
         `   Imported: ${initialState.comments.length} comments, ${initialState.revisions.length} revisions`,
       );
+      if (styleMetadata) {
+        console.log('   Styles: extracted from source document');
+      }
       return;
     }
 
@@ -74,6 +81,14 @@ export class Bootstrapper {
     }
 
     await writeFile(manifestPath, JSON.stringify(finalManifest, null, 2), 'utf-8');
+    await writeFile(resolve(absOutDir, '.docport.reference.docx'), docxBuffer);
+    if (styleMetadata) {
+      await writeFile(
+        resolve(absOutDir, 'paper.styles.json'),
+        JSON.stringify(styleMetadata, null, 2),
+        'utf-8',
+      );
+    }
 
     const state = DocportState.create(dirname(manifestPath));
     for (const comment of initialState.comments) {
@@ -90,6 +105,9 @@ export class Bootstrapper {
     console.log(`   Chapters: ${chapterPlans.length}`);
     console.log(`   Imported comments: ${initialState.comments.length}`);
     console.log(`   Imported revisions: ${initialState.revisions.length}`);
+    if (styleMetadata) {
+      console.log(`   Style metadata: ${resolve(absOutDir, 'paper.styles.json')}`);
+    }
   }
 
   private applyImportedAnnotationsToChapters(
@@ -116,11 +134,10 @@ export class Bootstrapper {
     if (mode === 'single') {
       return [{ file: '01-main.md', title: 'Main' }];
     }
-    return [
-      { file: '01-chapter.md', title: 'Chapter 1' },
-      { file: '02-chapter.md', title: 'Chapter 2' },
-      { file: '03-chapter.md', title: 'Chapter 3' },
-    ];
+    return Array.from({ length: 64 }, (_unused, i) => ({
+      file: `${String(i + 1).padStart(2, '0')}-chapter.md`,
+      title: `Chapter ${i + 1}`,
+    }));
   }
 
   private toChapterFiles(
@@ -150,7 +167,8 @@ export class Bootstrapper {
         ...c,
         file: `${String(i + 1).padStart(2, '0')}-chapter.md`,
       },
-    }));
+    }))
+      .filter(({ parsed }) => parsed.ast.children.length > 0);
   }
 
   private mergeRoots(roots: Root[]): Root {

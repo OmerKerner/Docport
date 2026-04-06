@@ -20,3 +20,6 @@ export { type Revision, type RevisionKind } from './revision.js';
 
 // Document types
 export { type ParsedChapter, type DocportDocument } from './document.js';
+
+// Style metadata
+export { StyleMetadataSchema, type StyleMetadata } from './style-metadata.js';

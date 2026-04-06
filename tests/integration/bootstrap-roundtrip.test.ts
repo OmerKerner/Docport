@@ -82,6 +82,8 @@ describe('Bootstrap roundtrip from mockup .docx', () => {
     const manifestRaw = await readFile(manifestPath, 'utf-8');
     expect(manifestRaw).toContain('"chapters"');
     expect(manifestRaw).toContain('01-main.md');
+    expect(manifestRaw).toContain('"referenceDoc"');
+    expect(manifestRaw).toContain('.docport.reference.docx');
 
     const chapterRaw = await readFile(resolve(workspace, '01-main.md'), 'utf-8');
     expect(chapterRaw.length).toBeGreaterThan(100);
@@ -99,6 +101,18 @@ describe('Bootstrap roundtrip from mockup .docx', () => {
       expect(Array.isArray(state.comments)).toBe(true);
       expect(state.comments?.length ?? 0).toBeGreaterThan(0);
     }
+
+    const stylesRaw = await readFile(resolve(workspace, 'paper.styles.json'), 'utf-8');
+    const styles = JSON.parse(stylesRaw) as {
+      sourceDocxName: string;
+      styleMap: {
+        normal?: { styleId: string };
+        heading1?: { styleId: string };
+      };
+    };
+    expect(styles.sourceDocxName).toContain('bootstrap-mockup.docx');
+    expect(styles.styleMap.normal?.styleId?.length ?? 0).toBeGreaterThan(0);
+    expect(styles.styleMap.heading1?.styleId?.length ?? 0).toBeGreaterThan(0);
 
     const pusher = new Pusher();
     await pusher.run(manifestPath, { force: true, outputPath: repushedDocx });
@@ -122,6 +136,35 @@ describe('Bootstrap roundtrip from mockup .docx', () => {
     expect(targetFeatures.commentRanges).toBeGreaterThanOrEqual(0);
     expect(targetFeatures.insertions + targetFeatures.deletions).toBeGreaterThanOrEqual(0);
     expect(targetFeatures.bookmarks + targetFeatures.refFields).toBeGreaterThanOrEqual(0);
+  });
+
+  it('splits chapters on heading-1/page-break mode and preserves natural spacing in prose', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'docport-bootstrap-split-'));
+    const fixtureDocx = resolve('tests', 'fixtures', 'bootstrap-mockup.docx');
+    const manifestPath = resolve(workspace, 'paper.manifest.json');
+
+    const bootstrapper = new Bootstrapper();
+    await bootstrapper.run(fixtureDocx, workspace, { chapterMode: 'pagebreak' });
+
+    const manifestRaw = await readFile(manifestPath, 'utf-8');
+    const manifest = JSON.parse(manifestRaw) as {
+      chapters: Array<{ file: string; title?: string }>;
+    };
+
+    expect(manifest.chapters.length).toBeGreaterThanOrEqual(5);
+
+    const chapterContents = await Promise.all(
+      manifest.chapters.map((chapter) => readFile(resolve(workspace, chapter.file), 'utf-8')),
+    );
+    const merged = chapterContents.join('\n');
+
+    // Regression samples from the user fixture where whitespace must remain present.
+    expect(merged).toContain('higher complexity');
+    expect(merged).toContain('like sequence');
+    expect(merged).toContain('the differing');
+    expect(merged).not.toContain('highercomplexity');
+    expect(merged).not.toContain('likesequence');
+    expect(merged).not.toContain('thediffering');
   });
 });
 

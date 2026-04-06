@@ -2,6 +2,7 @@ import { resolve, dirname } from 'path';
 import { ManifestReader } from '../manifest/ManifestReader.js';
 import { MarkdownReader } from '../markdown/MarkdownReader.js';
 import { DocxBuilder } from '../docx/DocxBuilder.js';
+import { applyReferenceDocStyles } from '../docx/ReferenceDocStyler.js';
 import { GitManager } from '../git/GitManager.js';
 import { DocportState } from './DocportState.js';
 import type { DocportDocument, ParsedChapter } from '../types/index.js';
@@ -148,7 +149,11 @@ export class Pusher {
     // Step 7: Generate .docx
     console.log('📄 Generating .docx file...');
     const docxBuilder = new DocxBuilder();
-    const docxBuffer = await docxBuilder.build(document, manifestDir);
+    let docxBuffer = await docxBuilder.build(document, manifestDir);
+    if (manifest.referenceDoc) {
+      console.log(`🎨 Applying reference styles from: ${manifest.referenceDoc}`);
+      docxBuffer = await applyReferenceDocStyles(docxBuffer, manifest.referenceDoc);
+    }
 
     // Step 8: Write to output file (unless dry-run)
     const outputPath = options.outputPath
