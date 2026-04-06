@@ -1,5 +1,7 @@
 import { basename, dirname, resolve } from 'path';
 import { readFile, writeFile } from 'fs/promises';
+import JSZip from 'jszip';
+import { XMLParser } from 'fast-xml-parser';
 
 import type { Root, Heading, Text } from 'mdast';
 import type { Manifest, DocportState as DocportStateType, ParsedChapter } from '../types/index.js';
@@ -48,11 +50,12 @@ export class Bootstrapper {
     };
 
     const parsed = await parser.parse(docxBuffer, bootstrapManifest, emptyDocportState());
+    const titleFromStyle = await this.extractTitleStyleText(docxBuffer);
     const inferredTitle = this.extractFirstHeadingText(parsed.chapters);
     const chapterPlans = this.toChapterFiles(parsed.chapters, chapterMode);
     const finalManifest: Manifest = {
       ...bootstrapManifest,
-      title: options.title ?? inferredTitle ?? bootstrapManifest.title,
+      title: options.title ?? titleFromStyle ?? inferredTitle ?? bootstrapManifest.title,
       chapters: chapterPlans.map((c) => ({ file: c.file, title: c.title })),
     };
 
@@ -186,6 +189,74 @@ export class Bootstrapper {
       }
     }
     return null;
+  }
+
+  private async extractTitleStyleText(docxBuffer: Buffer): Promise<string | null> {
+    const zip = await JSZip.loadAsync(docxBuffer);
+    const documentFile = zip.file('word/document.xml');
+    if (!documentFile) {
+      return null;
+    }
+    const documentXml = await documentFile.async('text');
+    const parser = new XMLParser({
+      ignoreAttributes: false,
+      attributeNamePrefix: '@_',
+      parseAttributeValue: false,
+      trimValues: false,
+    });
+    const doc = parser.parse(documentXml) as Record<string, unknown>;
+    const body = (doc['w:document'] as Record<string, unknown> | undefined)?.['w:body'] as Record<string, unknown> | undefined;
+    const pNodes = body?.['w:p'];
+    const paragraphs = pNodes ? (Array.isArray(pNodes) ? pNodes : [pNodes]) : [];
+
+    for (const p of paragraphs) {
+      if (!p || typeof p !== 'object') {
+        continue;
+      }
+      const styleVal = this.getParagraphStyle(p as Record<string, unknown>);
+      if (styleVal?.toLowerCase() !== 'title') {
+        continue;
+      }
+      const text = this.extractParagraphText(p as Record<string, unknown>);
+      if (text.length > 0) {
+        return text;
+      }
+    }
+    return null;
+  }
+
+  private getParagraphStyle(paragraph: Record<string, unknown>): string | null {
+    const pPr = paragraph['w:pPr'];
+    if (!pPr || typeof pPr !== 'object') {
+      return null;
+    }
+    const pStyle = (pPr as Record<string, unknown>)['w:pStyle'];
+    if (!pStyle || typeof pStyle !== 'object') {
+      return null;
+    }
+    const val = (pStyle as Record<string, unknown>)['@_w:val'];
+    return typeof val === 'string' ? val : null;
+  }
+
+  private extractParagraphText(paragraph: Record<string, unknown>): string {
+    const runs = paragraph['w:r'];
+    const runArray = runs ? (Array.isArray(runs) ? runs : [runs]) : [];
+    const chunks: string[] = [];
+    for (const run of runArray) {
+      if (!run || typeof run !== 'object') {
+        continue;
+      }
+      const textNode = (run as Record<string, unknown>)['w:t'];
+      if (typeof textNode === 'string') {
+        chunks.push(textNode);
+      } else if (textNode && typeof textNode === 'object') {
+        const text = (textNode as Record<string, unknown>)['#text'];
+        if (typeof text === 'string') {
+          chunks.push(text);
+        }
+      }
+    }
+    return chunks.join('').replace(/\s+/g, ' ').trim();
   }
 
   private extractChapterHeadingText(ast: Root): string | null {

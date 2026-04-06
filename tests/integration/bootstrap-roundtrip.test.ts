@@ -154,7 +154,8 @@ describe('Bootstrap roundtrip from mockup .docx', () => {
 
     expect(manifest.chapters.length).toBeGreaterThanOrEqual(5);
     expect(manifest.title.length).toBeGreaterThan(3);
-    expect(manifest.title.toLowerCase()).toBe('abstract');
+    expect(manifest.title.toLowerCase()).toContain('compression');
+    expect(manifest.title.toLowerCase()).toContain('genomic');
 
     for (const chapter of manifest.chapters) {
       expect(chapter.file).not.toContain('-chapter.md');
