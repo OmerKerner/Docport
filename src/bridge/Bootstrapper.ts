@@ -1,7 +1,7 @@
 import { basename, dirname, resolve } from 'path';
 import { readFile, writeFile } from 'fs/promises';
 
-import type { Root } from 'mdast';
+import type { Root, Heading, Text } from 'mdast';
 import type { Manifest, DocportState as DocportStateType, ParsedChapter } from '../types/index.js';
 import { emptyDocportState } from '../types/index.js';
 import { DocxParser } from '../docx/DocxParser.js';
@@ -48,9 +48,11 @@ export class Bootstrapper {
     };
 
     const parsed = await parser.parse(docxBuffer, bootstrapManifest, emptyDocportState());
+    const inferredTitle = this.extractFirstHeadingText(parsed.chapters);
     const chapterPlans = this.toChapterFiles(parsed.chapters, chapterMode);
     const finalManifest: Manifest = {
       ...bootstrapManifest,
+      title: options.title ?? inferredTitle ?? bootstrapManifest.title,
       chapters: chapterPlans.map((c) => ({ file: c.file, title: c.title })),
     };
 
@@ -160,15 +162,71 @@ export class Bootstrapper {
       ];
     }
 
-    return parsedChapters.map((c, i) => ({
-      file: `${String(i + 1).padStart(2, '0')}-chapter.md`,
-      title: `Chapter ${i + 1}`,
+    const usedSlugs = new Set<string>();
+    return parsedChapters.map((c, i) => {
+      const headingTitle = this.extractChapterHeadingText(c.ast) ?? `Chapter ${i + 1}`;
+      const slug = this.uniqueSlug(this.slugify(headingTitle) || `chapter-${i + 1}`, usedSlugs);
+      return {
+      file: `${String(i + 1).padStart(2, '0')}-${slug}.md`,
+      title: headingTitle,
       parsed: {
         ...c,
-        file: `${String(i + 1).padStart(2, '0')}-chapter.md`,
+        file: `${String(i + 1).padStart(2, '0')}-${slug}.md`,
       },
-    }))
+    };
+    })
       .filter(({ parsed }) => parsed.ast.children.length > 0);
+  }
+
+  private extractFirstHeadingText(chapters: ParsedChapter[]): string | null {
+    for (const chapter of chapters) {
+      const heading = this.extractChapterHeadingText(chapter.ast);
+      if (heading) {
+        return heading;
+      }
+    }
+    return null;
+  }
+
+  private extractChapterHeadingText(ast: Root): string | null {
+    for (const child of ast.children) {
+      if (child.type !== 'heading') {
+        continue;
+      }
+      const heading = child as Heading;
+      const text = heading.children
+        .filter((node): node is Text => node.type === 'text')
+        .map((node) => node.value)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (text.length > 0) {
+        return text;
+      }
+    }
+    return null;
+  }
+
+  private slugify(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48);
+  }
+
+  private uniqueSlug(base: string, usedSlugs: Set<string>): string {
+    if (!usedSlugs.has(base)) {
+      usedSlugs.add(base);
+      return base;
+    }
+    let i = 2;
+    while (usedSlugs.has(`${base}-${i}`)) {
+      i++;
+    }
+    const candidate = `${base}-${i}`;
+    usedSlugs.add(candidate);
+    return candidate;
   }
 
   private mergeRoots(roots: Root[]): Root {

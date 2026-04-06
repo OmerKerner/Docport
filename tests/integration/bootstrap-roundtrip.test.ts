@@ -148,10 +148,18 @@ describe('Bootstrap roundtrip from mockup .docx', () => {
 
     const manifestRaw = await readFile(manifestPath, 'utf-8');
     const manifest = JSON.parse(manifestRaw) as {
+      title: string;
       chapters: Array<{ file: string; title?: string }>;
     };
 
     expect(manifest.chapters.length).toBeGreaterThanOrEqual(5);
+    expect(manifest.title.length).toBeGreaterThan(3);
+    expect(manifest.title.toLowerCase()).toBe('abstract');
+
+    for (const chapter of manifest.chapters) {
+      expect(chapter.file).not.toContain('-chapter.md');
+      expect(chapter.file).toMatch(/^\d{2}-[a-z0-9-]+\.md$/);
+    }
 
     const chapterContents = await Promise.all(
       manifest.chapters.map((chapter) => readFile(resolve(workspace, chapter.file), 'utf-8')),
